@@ -96,6 +96,10 @@ async function enrichPost(id) {
             parts.push(`\nContent of the top result (${results[0].url}):\n${top.text.slice(0, 4000)}`);
           }
           sourceTitle = top.title || results[0].title;
+          // Prefer a REAL photo from the top search result over AI generation.
+          if (top.images && top.images.length && !(images && images.length)) {
+            images = top.images;
+          }
         } catch {}
       }
 
@@ -138,25 +142,11 @@ async function enrichPost(id) {
       .slice(0, 3)
       .map((l) => ({ url: l.url, title: l.title }));
 
-    // No real picture (text note, or a link without images)? Generate one from
-    // the text prompt, and attach a related article as a resource link.
+    // No real picture? Prefer a related public photo, and only AI-generate as
+    // the very last resort.
     if (!card.images || card.images.length === 0) {
-      const { buildImagePrompt, generateCardImage } = require("./imagegen");
-      card.image_prompt = buildImagePrompt(card);
-
-      // Prefer a generated image; fall back to a related public photo.
-      const generated = await generateCardImage(card.image_prompt);
-      if (generated) {
-        if (generated.startsWith("data:")) {
-          // Store the large image out-of-band and reference it by URL so the
-          // feed payload stays small.
-          await db.query("UPDATE posts SET image_data = $1 WHERE id = $2", [generated, id]);
-          card.images = [`/api/posts/${id}/image`];
-        } else {
-          card.images = [generated];
-        }
-        card.image_source = "ai";
-      } else {
+      // 1. Related public photo (Wikipedia).
+      try {
         const { findRelated } = require("./related");
         const byLen = (card.keywords || []).slice().sort((a, b) => b.length - a.length);
         const related = await findRelated([
@@ -174,6 +164,24 @@ async function enrichPost(id) {
             ...card.references,
             { url: related.url, title: related.title },
           ].slice(0, 3);
+        }
+      } catch {}
+
+      // 2. Last resort: an AI-generated image from the text prompt.
+      if (!card.images || card.images.length === 0) {
+        const { buildImagePrompt, generateCardImage } = require("./imagegen");
+        card.image_prompt = buildImagePrompt(card);
+        const generated = await generateCardImage(card.image_prompt);
+        if (generated) {
+          if (generated.startsWith("data:")) {
+            // Store the large image out-of-band and reference it by URL so the
+            // feed payload stays small.
+            await db.query("UPDATE posts SET image_data = $1 WHERE id = $2", [generated, id]);
+            card.images = [`/api/posts/${id}/image`];
+          } else {
+            card.images = [generated];
+          }
+          card.image_source = "ai";
         }
       }
     }
