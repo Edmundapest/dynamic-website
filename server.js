@@ -79,6 +79,23 @@ app.get("/api/posts", async (_req, res) => {
   }
 });
 
+// Serves a stored AI-generated image (kept out of the JSON feed).
+app.get("/api/posts/:id/image", async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).end();
+  try {
+    const { rows } = await db.query("SELECT image_data FROM posts WHERE id = $1", [id]);
+    const data = rows[0] && rows[0].image_data;
+    const m = data && /^data:(image\/[a-z+]+);base64,([\s\S]+)$/.exec(data);
+    if (!m) return res.status(404).end();
+    res.setHeader("Content-Type", m[1]);
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    res.end(Buffer.from(m[2], "base64"));
+  } catch {
+    res.status(500).end();
+  }
+});
+
 app.post("/api/posts", auth.requireAuth, async (req, res) => {
   const body = (req.body && req.body.body ? String(req.body.body) : "").trim();
   let author = (req.body && req.body.author ? String(req.body.author) : "").trim();

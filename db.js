@@ -71,6 +71,8 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_up INT NOT NULL DEFAULT 0`);
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_down INT NOT NULL DEFAULT 0`);
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
+  // Generated card images are stored out-of-band so the feed stays small.
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
 }
 
 async function query(text, params) {

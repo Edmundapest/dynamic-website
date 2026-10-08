@@ -102,7 +102,14 @@ async function enrichPost(id) {
       // Prefer a generated image; fall back to a related public photo.
       const generated = await generateCardImage(card.image_prompt);
       if (generated) {
-        card.images = [generated];
+        if (generated.startsWith("data:")) {
+          // Store the large image out-of-band and reference it by URL so the
+          // feed payload stays small.
+          await db.query("UPDATE posts SET image_data = $1 WHERE id = $2", [generated, id]);
+          card.images = [`/api/posts/${id}/image`];
+        } else {
+          card.images = [generated];
+        }
         card.image_source = "ai";
       } else {
         const { findRelated } = require("./related");

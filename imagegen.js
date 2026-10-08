@@ -50,7 +50,11 @@ async function cloudflare(prompt) {
     if (ctype.includes("application/json")) {
       const d = await res.json();
       const b64 = d && d.result && d.result.image;
-      if (b64) return `data:image/png;base64,${b64}`;
+      if (b64) {
+        // Cloudflare returns a MIME-less base64; detect JPEG vs PNG from magic.
+        const mime = b64.startsWith("/9j/") ? "image/jpeg" : "image/png";
+        return `data:${mime};base64,${b64}`;
+      }
       throw new Error("Cloudflare: no image in response");
     }
     const buf = Buffer.from(await res.arrayBuffer());
