@@ -44,7 +44,7 @@ app.get("/api/stats", async (_req, res) => {
       db: info.db,
       db_time: info.now,
       engine: String(info.version).split(" ").slice(0, 2).join(" "),
-      region: process.env.RENDER_REGION || "local",
+      region: process.env.RENDER_REGION || (process.env.RENDER ? "render" : "local"),
       node: process.version,
       uptime: Math.round(process.uptime()),
     });
