@@ -32,19 +32,34 @@ function getPool() {
   return pool;
 }
 
-// Creates the demo table if it does not exist. Safe to call repeatedly.
+// Bootstraps the schema. Safe to call repeatedly; also performs additive
+// "migrations" so older tables gain new columns.
 async function init() {
   await getPool().query(`
     CREATE TABLE IF NOT EXISTS notes (
       id         SERIAL PRIMARY KEY,
+      author     TEXT,
       body       TEXT NOT NULL,
+      color      TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // Additive migrations for tables created by an earlier version.
+  await getPool().query(`ALTER TABLE notes ADD COLUMN IF NOT EXISTS author TEXT`);
+  await getPool().query(`ALTER TABLE notes ADD COLUMN IF NOT EXISTS color TEXT`);
 }
 
 async function query(text, params) {
   return getPool().query(text, params);
 }
 
-module.exports = { getPool, init, query };
+// Runs a query and reports how long the database round-trip took, in ms.
+// This is what powers the on-page "latency" meter.
+async function timedQuery(text, params) {
+  const start = process.hrtime.bigint();
+  const result = await getPool().query(text, params);
+  const ms = Number(process.hrtime.bigint() - start) / 1e6;
+  return { result, ms };
+}
+
+module.exports = { getPool, init, query, timedQuery };

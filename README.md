@@ -8,13 +8,27 @@ either. See the trade-offs at the bottom.
 
 | File | Purpose |
 |---|---|
-| `server.js` | Express app. Loads `.env` locally, listens on `process.env.PORT`, exposes `/`, `/healthz`, and `/api/*`. |
-| `db.js` | Lazy `pg` connection pool + `notes` table bootstrap. |
+| `server.js` | Express app + JSON API. Loads `.env` locally, listens on `process.env.PORT`. |
+| `db.js` | Lazy `pg` connection pool, schema bootstrap, and a timed-query helper. |
+| `public/index.html` | The demo UI — a live wall of messages, latency meter, and stats. Self-contained (no build step). |
 | `render.yaml` | Render Blueprint describing the web service. |
+| `.github/workflows/keep-warm.yml` | Cron that pings `/healthz` so the free Render service stays warm. |
 | `.env.example` | Local env template. |
 
-Routes: `GET /` (landing page), `GET /healthz` (no DB), `GET /api/db-health`,
-`GET /api/notes`, `POST /api/notes` with `{ "body": "..." }`.
+### Pages & API
+
+| Route | What it does |
+|---|---|
+| `GET /` | The demo page: live stats, latency meter, message wall. |
+| `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. |
+| `GET /api/stats` | Row count, DB engine/version, region, uptime, query time. |
+| `GET /api/ping` | `SELECT 1` round-trip measured in ms. |
+| `GET /api/db-health` | Confirms the DB is reachable, returns its clock. |
+| `GET /api/notes` | Latest 200 messages. |
+| `POST /api/notes` | Create a message: `{ "author": "...", "body": "..." }`. |
+| `DELETE /api/notes/:id` | Delete one message. |
+| `POST /api/seed` | Insert demo rows: `{ "n": 10 }`. |
+| `POST /api/reset` | Truncate the table. |
 
 ## 1. Create the database on Neon
 
