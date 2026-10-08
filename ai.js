@@ -71,7 +71,7 @@ Given the posted content, produce a single JSON object (no markdown) with these 
 - "quotes": an array of 1-2 short, memorable, quirky quotes found in or inspired by the content
 - "keywords": an array of 3-5 lowercase topic keywords
 - "references": up to 3 URLs chosen ONLY from the "Links found on the page" list in the input that are the most useful further reading; use [] if there is no such list or none fit
-Stay factual to the provided content. If the content is thin, be honest and concise rather than inventing specifics.`;
+Stay factual to the provided content. If the input contains "Web search results", ground the summary and fun facts in them and include concrete specifics (names, dates, places, numbers). If the content is thin, be honest and concise rather than inventing specifics.`;
 
 // Builds the card object for a post. `context` is a string describing the
 // source (page title/description/text for links, or the raw text for notes).

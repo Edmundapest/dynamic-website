@@ -72,6 +72,34 @@ async function enrichPost(id) {
       ]
         .filter(Boolean)
         .join("\n");
+    } else if (post.body) {
+      // Text note: search the web so the AI can produce real details rather
+      // than admitting the note is thin.
+      const { webSearch } = require("./search");
+      const results = await webSearch(post.body.slice(0, 200), 6);
+      if (results.length) {
+        links = results.map((r) => ({ url: r.url, title: r.title }));
+        const block = results
+          .map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`)
+          .join("\n\n");
+        const linkList = links.map((l) => `- ${l.title} :: ${l.url}`).join("\n");
+        context = [
+          `Poster's note: ${post.body}`,
+          "",
+          "Web search results (use these for real, specific details):",
+          block,
+          `\nLinks found on the page:\n${linkList}`,
+        ].join("\n");
+        // Fetch the top result for fuller content (best-effort).
+        try {
+          const { fetchPage } = require("./fetchPage");
+          const top = await fetchPage(results[0].url);
+          if (top.text) {
+            context += `\n\nContent of the top result (${results[0].url}):\n${top.text.slice(0, 4000)}`;
+          }
+          sourceTitle = top.title || results[0].title;
+        } catch {}
+      }
     }
 
     // Learn from reader thumbs: earlier liked/disliked cards shape this one.
