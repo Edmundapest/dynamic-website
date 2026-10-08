@@ -61,6 +61,26 @@ async function enrichPost(id) {
       .slice(0, 3)
       .map((l) => ({ url: l.url, title: l.title }));
 
+    // No picture (e.g. a text note, or a link with no images)? Look up a related
+    // public article so every card gets a real image and a resource link.
+    if (!card.images || card.images.length === 0) {
+      const { findRelated } = require("./related");
+      const byLen = (card.keywords || []).slice().sort((a, b) => b.length - a.length);
+      const related = await findRelated([
+        card.title,
+        (card.keywords || []).join(" "),
+        ...byLen,
+        post.body,
+      ]);
+      if (related) {
+        if (related.image) card.images = [related.image];
+        card.references = [
+          ...card.references,
+          { url: related.url, title: related.title },
+        ].slice(0, 3);
+      }
+    }
+
     await db.query(
       `UPDATE posts
          SET card = $1, status = 'ready', error = NULL, updated_at = now()
