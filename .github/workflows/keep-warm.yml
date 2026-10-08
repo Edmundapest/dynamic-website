@@ -1,0 +1,29 @@
+name: keep-warm
+
+# Pings the app so Render's free web service doesn't spin down after 15 min idle.
+# Runs every 10 minutes. Note: GitHub may delay scheduled runs under load, so
+# this reduces cold starts rather than eliminating them.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # lets you trigger it manually from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Override without editing this file: repo Settings -> Secrets and
+      # variables -> Actions -> Variables -> new variable APP_URL.
+      APP_URL: ${{ vars.APP_URL || 'https://dynamic-website-urt2.onrender.com' }}
+    steps:
+      - name: Ping /healthz
+        run: |
+          echo "Pinging $APP_URL/healthz"
+          # --max-time 90 tolerates a cold start; --retry handles transient blips.
+          code=$(curl -sS --max-time 90 --retry 2 --retry-delay 5 \
+            -o /tmp/body -w '%{http_code}' "$APP_URL/healthz")
+          echo "HTTP $code"
+          cat /tmp/body || true
+          echo
+          test "$code" = "200"
