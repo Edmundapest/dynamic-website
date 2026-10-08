@@ -112,7 +112,7 @@ function extract(html, baseUrl) {
   const absolutize = (src) => {
     try { return new URL(src, baseUrl).toString(); } catch { return null; }
   };
-  const cleanImages = [...new Set(images.map(absolutize).filter(Boolean))].slice(0, 3);
+  const cleanImages = [...new Set(images.map((s) => absolutize(decodeEntities(s))).filter(Boolean))].slice(0, 3);
 
   const text = decodeEntities(
     html
