@@ -18,6 +18,8 @@ services:
         sync: false # prompted for / set manually in the dashboard
       - key: DEEPSEEK_API_KEY
         sync: false # DeepSeek API key for AI enrichment
+      - key: TAVILY_API_KEY
+        sync: false # optional: Tavily search key (reliable web search)
       - key: POST_PASSWORD
         sync: false # shared password required to post
       - key: SESSION_SECRET

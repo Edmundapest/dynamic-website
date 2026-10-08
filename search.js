@@ -1,10 +1,12 @@
-// Free web search via DuckDuckGo Lite (no API key).
+// Web search for text notes.
 //
-// DDG's Instant-Answer API and html.duckduckgo.com are blocked for server-side
-// requests, but lite.duckduckgo.com/lite/ returns real results. Datacenter IPs
-// (e.g. Render) are challenged intermittently, so we retry once; when it still
-// returns nothing the caller falls back to Wikipedia. It works reliably from a
-// residential IP (local dev).
+// Provider order:
+//   1. Tavily (if TAVILY_API_KEY is set) — reliable from any host, free tier
+//      (1,000 searches/month). Also returns image URLs we can use on cards.
+//   2. DuckDuckGo Lite (key-less fallback). Real results, but datacenter IPs
+//      (e.g. Render) are challenged intermittently and often return nothing;
+//      works reliably from a residential IP (local dev).
+const TIMEOUT_MS = 10_000;
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -12,7 +14,6 @@ const HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
 };
-const TIMEOUT_MS = 10_000;
 
 function decodeEntities(s) {
   return String(s)
@@ -28,8 +29,50 @@ function decodeEntities(s) {
 
 const clean = (s) => decodeEntities(String(s).replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 
-// Fetch the Lite results HTML (best-effort; null on failure).
-async function fetchHtml(query) {
+// --- Tavily ---------------------------------------------------------------
+async function tavilySearch(query, limit) {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        query,
+        max_results: limit,
+        search_depth: "basic",
+        include_images: true,
+        include_answer: false,
+      }),
+    });
+    if (!res.ok) {
+      console.warn("tavily HTTP", res.status);
+      return null;
+    }
+    const d = await res.json();
+    const results = (Array.isArray(d.results) ? d.results : [])
+      .map((r) => ({
+        title: String(r.title || "").trim(),
+        url: String(r.url || ""),
+        snippet: String(r.content || "").trim(),
+      }))
+      .filter((r) => r.title && /^https?:\/\//i.test(r.url));
+    const images = Array.isArray(d.images) ? d.images.filter((u) => typeof u === "string") : [];
+    if (images.length && results.length) results[0].image = images[0];
+    return results;
+  } catch (err) {
+    console.warn("tavily error:", err.message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// --- DuckDuckGo Lite (key-less fallback) ----------------------------------
+async function ddgFetchHtml(query) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -46,7 +89,7 @@ async function fetchHtml(query) {
   }
 }
 
-function parse(html, limit) {
+function ddgParse(html, limit) {
   const links = [
     ...html.matchAll(
       /<a[^>]*href="\/\/duckduckgo\.com\/l\/\?uddg=([^&"]+)[^"]*"[^>]*class='result-link'[^>]*>([\s\S]*?)<\/a>/gi
@@ -55,7 +98,6 @@ function parse(html, limit) {
   const snippets = [
     ...html.matchAll(/<td[^>]*class='result-snippet'[^>]*>([\s\S]*?)<\/td>/gi),
   ];
-
   const results = [];
   for (let i = 0; i < links.length && results.length < limit; i++) {
     let url;
@@ -67,25 +109,32 @@ function parse(html, limit) {
     const title = clean(links[i][2]);
     const snippet = snippets[i] ? clean(snippets[i][1]) : "";
     if (!title || !/^https?:\/\//i.test(url)) continue;
-    // Skip sponsored/ad results (they redirect through duckduckgo.com/y.js).
     if (/duckduckgo\.com\/y\.js|ad_domain=|ad_provider=/.test(url)) continue;
     results.push({ title, url, snippet });
   }
   return results;
 }
 
-async function webSearch(query, limit = 6) {
-  const q = String(query || "").trim();
-  if (q.length < 2) return [];
+async function ddgSearch(query, limit) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const html = await fetchHtml(q);
+    const html = await ddgFetchHtml(query);
     if (html) {
-      const results = parse(html, limit);
+      const results = ddgParse(html, limit);
       if (results.length) return results;
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
   }
   return [];
+}
+
+async function webSearch(query, limit = 6) {
+  const q = String(query || "").trim();
+  if (q.length < 2) return [];
+  if (process.env.TAVILY_API_KEY) {
+    const r = await tavilySearch(q, limit);
+    if (r && r.length) return r;
+  }
+  return ddgSearch(q, limit);
 }
 
 module.exports = { webSearch, decodeEntities };

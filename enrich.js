@@ -84,6 +84,8 @@ async function enrichPost(id) {
       } catch {}
       if (results.length) {
         links = results.map((r) => ({ url: r.url, title: r.title }));
+        // A search provider image (e.g. Tavily) is a real photo — prefer it.
+        if (results[0].image && !(images && images.length)) images = [results[0].image];
         parts.push(
           "",
           "Web search results (use these for real, specific details):",
