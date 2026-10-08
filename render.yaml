@@ -22,5 +22,9 @@ services:
         sync: false # shared password required to post
       - key: SESSION_SECRET
         sync: false # random string used to sign session cookies
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false # optional: for AI image generation (free Workers AI)
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false # optional: Cloudflare API token with Workers AI permission
       - key: NODE_VERSION
         value: "22"

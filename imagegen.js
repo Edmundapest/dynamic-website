@@ -28,6 +28,36 @@ async function withTimeout(promise, ms) {
   }
 }
 
+// Cloudflare Workers AI — free tier, no card. Returns base64 PNG JSON.
+async function cloudflare(prompt) {
+  return withTimeout(async (signal) => {
+    const acct = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const model = process.env.CF_IMAGE_MODEL || "@cf/black-forest-labs/flux-1-schnell";
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${acct}/ai/run/${model}`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt, steps: 6 }),
+      }
+    );
+    if (!res.ok) throw new Error(`Cloudflare HTTP ${res.status}`);
+    const ctype = res.headers.get("content-type") || "";
+    if (ctype.includes("application/json")) {
+      const d = await res.json();
+      const b64 = d && d.result && d.result.image;
+      if (b64) return `data:image/png;base64,${b64}`;
+      throw new Error("Cloudflare: no image in response");
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    return `data:image/png;base64,${buf.toString("base64")}`;
+  }, 60_000);
+}
+
 // Together AI (has a free FLUX schnell endpoint). Returns a hosted URL.
 async function together(prompt) {
   return withTimeout(async (signal) => {
@@ -80,6 +110,10 @@ async function huggingface(prompt) {
 // provider is configured (or the call fails) — caller then falls back.
 async function generateCardImage(prompt) {
   try {
+    // Preference order: Cloudflare (free, no card) > Together > Hugging Face.
+    if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
+      return await cloudflare(prompt);
+    }
     if (process.env.TOGETHER_API_KEY) return await together(prompt);
     if (process.env.HF_TOKEN) return await huggingface(prompt);
   } catch (err) {
