@@ -47,6 +47,26 @@ async function init() {
   // Additive migrations for tables created by an earlier version.
   await getPool().query(`ALTER TABLE notes ADD COLUMN IF NOT EXISTS author TEXT`);
   await getPool().query(`ALTER TABLE notes ADD COLUMN IF NOT EXISTS color TEXT`);
+
+  // The wall's posts. `card` holds the AI-generated JSON; `status` tracks the
+  // async enrichment lifecycle so the client can show pending → ready/error.
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id         SERIAL PRIMARY KEY,
+      author     TEXT,
+      body       TEXT,
+      kind       TEXT NOT NULL DEFAULT 'text',
+      url        TEXT,
+      status     TEXT NOT NULL DEFAULT 'pending',
+      card       JSONB,
+      error      TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await getPool().query(
+    `CREATE INDEX IF NOT EXISTS posts_created_at_idx ON posts (created_at DESC)`
+  );
 }
 
 async function query(text, params) {

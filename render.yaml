@@ -16,5 +16,11 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false # prompted for / set manually in the dashboard
+      - key: DEEPSEEK_API_KEY
+        sync: false # DeepSeek API key for AI enrichment
+      - key: POST_PASSWORD
+        sync: false # shared password required to post
+      - key: SESSION_SECRET
+        sync: false # random string used to sign session cookies
       - key: NODE_VERSION
         value: "22"

@@ -1,16 +1,26 @@
-# Dynamic Website — Express + Postgres (free forever)
+# The Wall — AI-investigated posts (Express + Postgres)
 
-A minimal dynamic-website starter: **Express** app on **Render** (free web
-service) + **PostgreSQL** on **Neon** (free plan). No credit card required for
-either. See the trade-offs at the bottom.
+A dynamic website: **Express** app on **Render** (free web service) +
+**PostgreSQL** on **Neon** (free plan) + **DeepSeek** for AI. No credit card for
+the hosting/DB.
+
+**What it does:** a public **wall** where anyone can read posts, and anyone with
+the shared password can post a link or a note. Each new post is sent to AI, which
+turns it into a card — a title, summary, fun facts and quirky quotes. The original
+demo dashboard now lives at `/dashboard`.
 
 ## What's here
 
 | File | Purpose |
 |---|---|
 | `server.js` | Express app + JSON API. Loads `.env` locally, listens on `process.env.PORT`. |
-| `db.js` | Lazy `pg` connection pool, schema bootstrap, and a timed-query helper. |
-| `public/index.html` | The demo UI — a live wall of messages, latency meter, and stats. Self-contained (no build step). |
+| `db.js` | Lazy `pg` pool, schema bootstrap (`notes` + `posts`), timed-query helper. |
+| `auth.js` | Shared-password check, signed HttpOnly session cookie, `requireAuth`. |
+| `ai.js` | DeepSeek client (OpenAI-compatible) — builds the card JSON. |
+| `fetchPage.js` | SSRF-safe page fetcher + regex HTML extraction (no deps). |
+| `enrich.js` | Async enrichment worker: fetch → AI → DB update. |
+| `public/index.html` | The wall (home page). |
+| `public/dashboard.html` | The original DB dashboard at `/dashboard`. |
 | `render.yaml` | Render Blueprint describing the web service. |
 | `.github/workflows/keep-warm.yml` | Cron that pings `/healthz` so the free Render service stays warm. |
 | `.env.example` | Local env template. |
@@ -19,16 +29,37 @@ either. See the trade-offs at the bottom.
 
 | Route | What it does |
 |---|---|
-| `GET /` | The demo page: live stats, latency meter, message wall. |
+| `GET /` | The wall: post feed + gated composer. |
+| `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). |
 | `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. |
-| `GET /api/stats` | Row count, DB engine/version, region, uptime, query time. |
-| `GET /api/ping` | `SELECT 1` round-trip measured in ms. |
-| `GET /api/db-health` | Confirms the DB is reachable, returns its clock. |
-| `GET /api/notes` | Latest 200 messages. |
-| `POST /api/notes` | Create a message: `{ "author": "...", "body": "..." }`. |
-| `DELETE /api/notes/:id` | Delete one message. |
-| `POST /api/seed` | Insert demo rows: `{ "n": 10 }`. |
-| `POST /api/reset` | Truncate the table. |
+| `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. |
+| `GET /api/posts` | Public feed of posts (with their AI cards). |
+| `POST /api/posts` | **Auth.** Create a post `{ author, body }`; returns `pending`, enriches in the background. |
+| `POST /api/posts/:id/regenerate` | **Auth.** Re-run AI enrichment for a post. |
+| `DELETE /api/posts/:id` | **Auth.** Delete a post. |
+| `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | Dashboard stats/probes. |
+| `GET/POST/DELETE /api/notes` · `POST /api/seed` · `POST /api/reset` | The dashboard's demo data. |
+
+### How a post becomes a card
+
+1. `POST /api/posts` inserts a row with `status = 'pending'` and returns immediately.
+2. In the background, `enrich.js` fetches the URL (if any) via `fetchPage.js`
+   (SSRF-guarded), then asks DeepSeek for a JSON card.
+3. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
+4. The wall polls `GET /api/posts` and renders pending → ready cards live.
+
+## Environment variables
+
+| Name | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Neon **pooled** connection string. |
+| `DEEPSEEK_API_KEY` | yes | DeepSeek key for AI cards (<https://platform.deepseek.com>). |
+| `POST_PASSWORD` | yes | Shared password required to post. |
+| `SESSION_SECRET` | yes | Random string used to sign session cookies. |
+| `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | no | Override DeepSeek endpoint/model. |
+
+Generate a session secret:
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
 ## 1. Create the database on Neon
 
@@ -50,9 +81,11 @@ npm start                   # http://localhost:3000
 1. Push this folder to a GitHub repository.
 2. Sign up at <https://render.com> with GitHub (no card).
 3. **New +** → **Blueprint** → select the repo. Render reads `render.yaml`.
-4. When prompted for `DATABASE_URL`, paste the Neon **pooled** connection string.
+4. When prompted, set the env vars (`sync: false`): `DATABASE_URL` (Neon pooled),
+   `DEEPSEEK_API_KEY`, `POST_PASSWORD`, `SESSION_SECRET`.
 5. Deploy. Render gives you a `https://<name>.onrender.com` URL.
-6. Verify: open `/` and `/api/db-health` (should show a `db_time`).
+6. Verify: open `/` (the wall), unlock with `POST_PASSWORD`, and post a link —
+   its card fills in after the AI responds.
 
 ## Free-tier trade-offs (know these before you launch)
 

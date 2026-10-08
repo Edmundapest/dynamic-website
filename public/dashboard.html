@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live DB Demo · Express + Postgres</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #0e1428;
+    --card: rgba(255,255,255,0.04);
+    --stroke: rgba(255,255,255,0.09);
+    --text: #e8ecf8;
+    --muted: #8a93ad;
+    --accent: #6c8cff;
+    --accent2: #22d3ee;
+    --good: #34e39b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1100px 600px at 15% -10%, rgba(108,140,255,0.25), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,0.16), transparent 55%),
+      radial-gradient(800px 700px at 50% 120%, rgba(52,227,155,0.12), transparent 60%),
+      linear-gradient(180deg, var(--bg), var(--bg2));
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent2); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .2px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)); font-size: 20px;
+    box-shadow: 0 8px 30px rgba(108,140,255,.45);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+    padding: 8px 13px; border-radius: 999px; border: 1px solid var(--stroke); background: var(--card);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 rgba(52,227,155,.6); animation: pulse 1.8s infinite; }
+  .dot.bad { background: #ff6b6b; animation: none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(52,227,155,.5)} 70%{box-shadow:0 0 0 10px rgba(52,227,155,0)} 100%{box-shadow:0 0 0 0 rgba(52,227,155,0)} }
+
+  .hero { margin: 52px 0 30px; }
+  .hero h1 {
+    font-size: clamp(38px, 7vw, 74px); line-height: 1.02; margin: 0 0 14px; font-weight: 800;
+    letter-spacing: -1.5px;
+    background: linear-gradient(100deg, #fff 10%, #b9c6ff 45%, #7ee7ff 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p { color: var(--muted); font-size: clamp(15px, 2vw, 18px); max-width: 640px; line-height: 1.6; margin: 0; }
+  kbd, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  code { background: rgba(255,255,255,.06); border: 1px solid var(--stroke); padding: 1px 6px; border-radius: 6px; font-size: .88em; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 14px; margin: 28px 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--stroke); border-radius: 16px; padding: 18px;
+    backdrop-filter: blur(8px); position: relative; overflow: hidden;
+  }
+  .card .label { color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .7px; }
+  .card .value { font-size: 30px; font-weight: 800; margin-top: 8px; letter-spacing: -.5px; }
+  .card .sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card.accent .value { color: var(--accent2); }
+
+  .panel { background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; padding: 20px; margin: 16px 0; backdrop-filter: blur(8px); }
+  .panel h2 { margin: 0 0 4px; font-size: 17px; }
+  .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+  canvas { width: 100%; height: 96px; display: block; border-radius: 12px; background: rgba(0,0,0,.22); border: 1px solid var(--stroke); }
+
+  .btn {
+    appearance: none; border: 1px solid var(--stroke); background: rgba(255,255,255,.06); color: var(--text);
+    font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 11px; cursor: pointer; transition: .15s; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,.12); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #071022; box-shadow: 0 10px 26px rgba(108,140,255,.35); }
+  .btn.ghost { background: transparent; }
+
+  input, textarea {
+    width: 100%; font: inherit; color: var(--text); background: rgba(0,0,0,.25);
+    border: 1px solid var(--stroke); border-radius: 11px; padding: 12px 14px; outline: none; transition: .15s;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,140,255,.18); }
+  textarea { resize: vertical; min-height: 52px; }
+  .composer { display: grid; grid-template-columns: 190px 1fr auto; gap: 12px; align-items: start; }
+  @media (max-width: 720px) { .composer { grid-template-columns: 1fr; } }
+
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 13px; margin-top: 6px; }
+  .note {
+    background: rgba(255,255,255,.035); border: 1px solid var(--stroke); border-left: 4px solid var(--c, var(--accent));
+    border-radius: 13px; padding: 14px 15px; position: relative; animation: pop .28s ease both;
+  }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  .note .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #071022; background: var(--c, var(--accent)); flex: none; }
+  .who { font-weight: 700; font-size: 13.5px; }
+  .when { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .body { line-height: 1.5; font-size: 14.5px; word-wrap: break-word; overflow-wrap: anywhere; }
+  .del {
+    position: absolute; top: 9px; right: 9px; opacity: 0; transition: .15s; border: none; cursor: pointer;
+    background: rgba(255,107,107,.16); color: #ff9b9b; border-radius: 8px; padding: 3px 7px; font-size: 12px;
+  }
+  .note:hover .del { opacity: 1; }
+  .empty { color: var(--muted); text-align: center; padding: 34px 10px; border: 1px dashed var(--stroke); border-radius: 14px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+    background: #111a30; border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  footer { color: var(--muted); font-size: 13px; margin-top: 34px; text-align: center; }
+  .flash { animation: flash 1s ease; }
+  @keyframes flash { 0% { background: rgba(108,140,255,.28); } 100% { background: rgba(255,255,255,.035); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><div class="logo">⚡</div><div>live-db-demo</div></div>
+    <div class="pill"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></div>
+  </header>
+
+  <section class="hero">
+    <h1>It’s alive.</h1>
+    <p>
+      Every number and message on this page is read from a <strong>PostgreSQL</strong> database
+      (Neon) on each request — no static HTML. Add a message, refresh the page, open it on your
+      phone: it’s all the same live table. The meter below shows the real database round-trip time.
+    </p>
+  </section>
+
+  <div class="grid">
+    <div class="card"><div class="label">Rows in DB</div><div class="value" id="statCount">–</div><div class="sub">table <code>notes</code></div></div>
+    <div class="card accent"><div class="label">DB round-trip</div><div class="value" id="statMs">–</div><div class="sub">SELECT count(*)</div></div>
+    <div class="card"><div class="label">Server uptime</div><div class="value" id="statUptime">–</div><div class="sub" id="statNode">node</div></div>
+    <div class="card"><div class="label">Database</div><div class="value" id="statDb" style="font-size:20px">–</div><div class="sub" id="statEngine">engine</div></div>
+    <div class="card"><div class="label">Region</div><div class="value" id="statRegion" style="font-size:20px">–</div><div class="sub">where it runs</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Live latency meter</h2>
+    <p class="hint">Each bar is a real <code>SELECT 1</code> round-trip to Postgres. Click to measure now.</p>
+    <canvas id="chart" width="1000" height="192"></canvas>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="btnPing">Ping database</button>
+      <span class="hint" id="pingReadout" style="margin:0">–</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Leave a message</h2>
+    <p class="hint">It’s written straight into Postgres and instantly visible to everyone.</p>
+    <div class="composer">
+      <input id="author" maxlength="40" placeholder="Your name (optional)" />
+      <textarea id="body" maxlength="500" placeholder="Say something… (⌘/Ctrl + Enter to post)"></textarea>
+      <button class="btn primary" id="btnPost">Post it</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="btnSeed">Seed 10 rows</button>
+      <button class="btn ghost" id="btnRefresh">Refresh</button>
+      <button class="btn ghost" id="btnReset" style="margin-left:auto">Clear all</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>The wall <span class="hint" id="wallCount" style="font-weight:400"></span></h2>
+    <div class="wall" id="wall"></div>
+  </div>
+
+  <footer>
+    Express · PostgreSQL (Neon) · deployed on Render —
+    <a href="/api/stats" target="_blank">/api/stats</a> ·
+    <a href="/api/notes" target="_blank">/api/notes</a> ·
+    <a href="/api/db-health" target="_blank">/api/db-health</a>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const samples = [];
+const MAXP = 40;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function setStatus(ok, text) {
+  $("statusDot").classList.toggle("bad", !ok);
+  $("statusText").textContent = text;
+}
+function initials(name) {
+  const s = (name || "?").trim();
+  return s ? s[0].toUpperCase() : "★";
+}
+function relTime(iso) {
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (d < 5) return "just now";
+  if (d < 60) return Math.floor(d) + "s ago";
+  if (d < 3600) return Math.floor(d / 60) + "m ago";
+  if (d < 86400) return Math.floor(d / 3600) + "h ago";
+  return Math.floor(d / 86400) + "d ago";
+}
+function fmtUptime(s) {
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+  return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+function renderNotes(notes) {
+  const wall = $("wall");
+  $("wallCount").textContent = notes.length ? "· " + notes.length + " message" + (notes.length === 1 ? "" : "s") : "";
+  if (!notes.length) {
+    wall.innerHTML = '<div class="empty">No messages yet. Be the first — your row will land in Postgres.</div>';
+    return;
+  }
+  wall.innerHTML = "";
+  for (const n of notes) {
+    const el = document.createElement("div");
+    el.className = "note";
+    el.style.setProperty("--c", n.color || "#6c8cff");
+    el.dataset.id = n.id;
+
+    const meta = document.createElement("div"); meta.className = "meta";
+    const av = document.createElement("div"); av.className = "avatar"; av.textContent = initials(n.author);
+    const who = document.createElement("div"); who.className = "who"; who.textContent = n.author || "Anonymous";
+    const when = document.createElement("div"); when.className = "when"; when.textContent = relTime(n.created_at);
+    meta.append(av, who, when);
+
+    const body = document.createElement("div"); body.className = "body"; body.textContent = n.body;
+
+    const del = document.createElement("button"); del.className = "del"; del.textContent = "✕"; del.title = "Delete";
+    del.onclick = async () => {
+      try { await api("/api/notes/" + n.id, { method: "DELETE" }); toast("Deleted row #" + n.id); refresh(); }
+      catch (e) { toast("Delete failed: " + e.message); }
+    };
+
+    el.append(del, meta, body);
+    wall.append(el);
+  }
+}
+
+function renderChart() {
+  const cv = $("chart"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, pad = 12;
+  ctx.clearRect(0, 0, W, H);
+  if (!samples.length) return;
+  const max = Math.max(...samples, 10) * 1.15;
+  const bw = (W - pad * 2) / MAXP;
+  // grid baseline
+  ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.beginPath();
+  ctx.moveTo(pad, H - pad); ctx.lineTo(W - pad, H - pad); ctx.stroke();
+  samples.forEach((v, i) => {
+    const x = pad + i * bw + bw * 0.15;
+    const h = Math.max(3, (v / max) * (H - pad * 2));
+    const y = H - pad - h;
+    const g = ctx.createLinearGradient(0, y, 0, H - pad);
+    g.addColorStop(0, "#22d3ee"); g.addColorStop(1, "rgba(108,140,255,.35)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    const r = Math.min(4, bw * 0.4);
+    const w = bw * 0.7;
+    ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
+    ctx.fill();
+  });
+  ctx.fillStyle = "rgba(232,236,248,.55)"; ctx.font = "600 13px ui-monospace, monospace";
+  ctx.fillText("max " + Math.round(max) + " ms", pad + 2, pad + 12);
+}
+
+async function ping() {
+  try {
+    const d = await api("/api/ping");
+    samples.push(d.ms); if (samples.length > MAXP) samples.shift();
+    $("pingReadout").textContent = "last round-trip: " + d.ms + " ms";
+    renderChart();
+  } catch (e) { setStatus(false, "db error"); }
+}
+
+async function refresh() {
+  try {
+    const [stats, data] = await Promise.all([api("/api/stats"), api("/api/notes")]);
+    setStatus(true, "database connected");
+    $("statCount").textContent = stats.notes;
+    $("statMs").textContent = stats.query_ms + " ms";
+    $("statUptime").textContent = fmtUptime(stats.uptime);
+    $("statNode").textContent = "node " + stats.node;
+    $("statDb").textContent = stats.db;
+    $("statEngine").textContent = stats.engine;
+    $("statRegion").textContent = stats.region;
+    renderNotes(data.notes);
+  } catch (e) {
+    setStatus(false, "offline");
+    $("wall").innerHTML = '<div class="empty">Couldn’t reach the database.<br><small>' + e.message + '</small></div>';
+  }
+}
+
+async function post() {
+  const body = $("body").value.trim();
+  if (!body) { toast("Type a message first"); return; }
+  $("btnPost").disabled = true;
+  try {
+    const d = await api("/api/notes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body, author: $("author").value })
+    });
+    $("body").value = "";
+    toast("Saved to Postgres in " + d.query_ms + " ms ✓");
+    await refresh();
+    const el = document.querySelector('.note[data-id="' + d.note.id + '"]');
+    if (el) el.classList.add("flash");
+  } catch (e) { toast("Failed: " + e.message); }
+  finally { $("btnPost").disabled = false; }
+}
+
+$("btnPost").onclick = post;
+$("body").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") post(); });
+$("btnPing").onclick = ping;
+$("btnRefresh").onclick = () => { refresh(); ping(); toast("Refreshed"); };
+$("btnSeed").onclick = async () => {
+  $("btnSeed").disabled = true;
+  try { const d = await api("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ n: 10 }) });
+    toast("Inserted " + d.inserted + " rows in " + d.query_ms + " ms"); await refresh(); }
+  catch (e) { toast("Failed: " + e.message); }
+  finally { $("btnSeed").disabled = false; }
+};
+$("btnReset").onclick = async () => {
+  if (!confirm("Delete ALL rows from the notes table?")) return;
+  try { await api("/api/reset", { method: "POST" }); toast("Table cleared"); refresh(); }
+  catch (e) { toast("Failed: " + e.message); }
+};
+
+// initial + polling
+refresh(); ping();
+setInterval(() => { refresh(); ping(); }, 6000);
+</script>
+</body>
+</html>
