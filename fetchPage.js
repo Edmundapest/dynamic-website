@@ -183,8 +183,7 @@ function extract(html, baseUrl) {
   };
 }
 
-async function fetchPage(rawUrl) {
-  let current = rawUrl;
+async function fetchPage(rawUrl) {  let current = rawUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const u = await assertPublicUrl(current);
     const controller = new AbortController();
@@ -214,4 +213,34 @@ async function fetchPage(rawUrl) {
   throw new Error("too many redirects");
 }
 
-module.exports = { fetchPage, isPrivateIp, assertPublicUrl, extract };
+// Returns true if `url` actually serves an image (content-type image/*), so we
+// don't put a login-walled or HTML URL in a card banner.
+async function isImageUrl(url) {
+  if (!/^https?:\/\//i.test(String(url || ""))) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    // Some CDNs reject HEAD; fall back to a ranged GET.
+    let res = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: { "User-Agent": "wall-bot/1.0", Accept: "image/*,*/*" },
+    });
+    if (!res.ok || !(res.headers.get("content-type") || "").startsWith("image/")) {
+      res = await fetch(url, {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: { "User-Agent": "wall-bot/1.0", Range: "bytes=0-1024", Accept: "image/*,*/*" },
+      });
+    }
+    return res.ok && (res.headers.get("content-type") || "").startsWith("image/");
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { fetchPage, isPrivateIp, assertPublicUrl, extract, isImageUrl };

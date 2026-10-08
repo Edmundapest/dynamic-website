@@ -84,25 +84,37 @@ async function enrichPost(id) {
       } catch {}
       if (results.length) {
         links = results.map((r) => ({ url: r.url, title: r.title }));
-        // A search provider image (e.g. Tavily) is a real photo — prefer it.
-        if (results[0].image && !(images && images.length)) images = [results[0].image];
         parts.push(
           "",
           "Web search results (use these for real, specific details):",
           results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n")
         );
+
+        const host = (u) => { try { return new URL(u).hostname; } catch { return ""; } };
+        const SOCIAL = /(^|\.)(instagram\.com|facebook\.com|fb\.com|x\.com|twitter\.com|linkedin\.com|tiktok\.com|pinterest\.com|youtube\.com|threads\.net)$/i;
+        // Content + a real photo come from the best non-social result.
+        const target = results.find((r) => !SOCIAL.test(host(r.url))) || results[0];
+
+        const candidates = [];
         try {
           const { fetchPage } = require("./fetchPage");
-          const top = await fetchPage(results[0].url);
+          const top = await fetchPage(target.url);
           if (top.text) {
-            parts.push(`\nContent of the top result (${results[0].url}):\n${top.text.slice(0, 4000)}`);
+            parts.push(`\nContent of the top result (${target.url}):\n${top.text.slice(0, 4000)}`);
           }
-          sourceTitle = top.title || results[0].title;
-          // Prefer a REAL photo from the top search result over AI generation.
-          if (top.images && top.images.length && !(images && images.length)) {
-            images = top.images;
-          }
+          sourceTitle = top.title || target.title;
+          if (top.images) candidates.push(...top.images);
         } catch {}
+        if (results[0].image) candidates.push(results[0].image);
+
+        // Use the first candidate that really serves an image (avoids
+        // login-walled / HTML URLs), preferring the fetched page's photo.
+        if (!(images && images.length)) {
+          const { isImageUrl } = require("./fetchPage");
+          for (const u of candidates.slice(0, 4)) {
+            if (await isImageUrl(u)) { images = [u]; break; }
+          }
+        }
       }
 
       // 2. Wikipedia background (reliable from cloud IPs) for concrete detail.
