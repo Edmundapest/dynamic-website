@@ -70,6 +70,7 @@ Given the posted content, produce a single JSON object (no markdown) with these 
 - "fun_facts": an array of 3 genuinely interesting facts drawn from the content
 - "quotes": an array of 1-2 short, memorable, quirky quotes found in or inspired by the content
 - "keywords": an array of 3-5 lowercase topic keywords
+- "references": up to 3 URLs chosen ONLY from the "Links found on the page" list in the input that are the most useful further reading; use [] if there is no such list or none fit
 Stay factual to the provided content. If the content is thin, be honest and concise rather than inventing specifics.`;
 
 // Builds the card object for a post. `context` is a string describing the
@@ -93,6 +94,7 @@ async function buildCard(context) {
         fun_facts: Array.isArray(card.fun_facts) ? card.fun_facts.slice(0, 5).map(String) : [],
         quotes: Array.isArray(card.quotes) ? card.quotes.slice(0, 3).map(String) : [],
         keywords: Array.isArray(card.keywords) ? card.keywords.slice(0, 6).map(String) : [],
+        references: Array.isArray(card.references) ? card.references.slice(0, 3).map(String) : [],
       };
     } catch (err) {
       lastErr = err;

@@ -90,7 +90,24 @@ function decodeEntities(s) {
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)));
 }
 
+// Heuristic: ignore logos, icons, wordmarks, SVGs and other non-photo assets
+// so the card shows a real content image when one exists.
+function looksLikeJunkImage(u) {
+  const s = u.toLowerCase().split("?")[0];
+  if (s.endsWith(".svg") || /\.svg[s]?\./.test(s) || /\.svg$/.test(s)) return true;
+  if (/\/\d{1,3}px-/.test(s)) return true; // tiny thumbnails, e.g. /20px-Icon.svg.png
+  if (/\/(logo|logos|wordmark|icon|icons|favicon|sprite|sprites|badge|placeholder|avatar)[/_.-]/.test(s)) return true;
+  if (/\/static\/images\//.test(s)) return true;
+  return false;
+}
+
 function extract(html, baseUrl) {
+  const absolutize = (src) => {
+    try { return new URL(src, baseUrl).toString(); } catch { return null; }
+  };
+  let baseHost = "";
+  try { baseHost = new URL(baseUrl).hostname; } catch {}
+
   const title =
     meta(html, "og:title") ||
     decodeEntities((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [, ""])[1]).trim();
@@ -98,21 +115,54 @@ function extract(html, baseUrl) {
     meta(html, "og:description") || meta(html, "description")
   );
 
-  const images = [];
-  for (const prop of ["og:image", "twitter:image", "og:image:url"]) {
+  // Images: prefer share images (og/twitter), then inline <img>, filtered.
+  const rawImages = [];
+  for (const prop of ["og:image", "og:image:url", "twitter:image", "twitter:image:src"]) {
     const v = meta(html, prop);
-    if (v) images.push(v);
+    if (v) rawImages.push(v);
   }
-  if (images.length < 3) {
-    for (const m of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
-      images.push(m[1]);
-      if (images.length >= 6) break;
-    }
+  for (const m of html.matchAll(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi)) {
+    rawImages.push(m[1]);
+    if (rawImages.length >= 18) break;
   }
-  const absolutize = (src) => {
-    try { return new URL(src, baseUrl).toString(); } catch { return null; }
-  };
-  const cleanImages = [...new Set(images.map((s) => absolutize(decodeEntities(s))).filter(Boolean))].slice(0, 3);
+  const images = [
+    ...new Set(
+      rawImages
+        .map((s) => absolutize(decodeEntities(s)))
+        .filter((u) => u && !looksLikeJunkImage(u))
+    ),
+  ].slice(0, 4);
+
+  // Links on the page (candidates for card "references").
+  const NAV_TITLES = new Set([
+    "main page", "contents", "current events", "random article", "about wikipedia",
+    "contact us", "donate", "help", "learn to edit", "community portal",
+    "recent changes", "upload file", "special pages", "create account", "log in",
+    "log out", "search", "jump to content", "jump to navigation", "privacy policy",
+    "disclaimers", "code of conduct", "mobile view", "cookie statement",
+  ]);
+  const links = [];
+  const seen = new Set();
+  for (const m of html.matchAll(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1];
+    if (!/^https?:/i.test(href) && !href.startsWith("/")) continue;
+    const url = absolutize(decodeEntities(href));
+    if (!url) continue;
+    const t = decodeEntities(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    if (t.length < 3 || t.length > 90) continue;
+    if (NAV_TITLES.has(t.toLowerCase()) || /^(jump to|toggle)/i.test(t)) continue;
+    // Skip meta/namespace pages (Wikipedia:, Portal:, Special:, File:, ...).
+    if (/\/wiki\/(Wikipedia|Portal|Special|Help|File|Template|Category|Talk):/i.test(url)) continue;
+    if (/[?&](action|veaction)=(edit|history|info)|Special:|\/w\/index\.php\?/.test(url)) continue;
+    // Same-site content links only — drops interlanguage sidebars and off-site
+    // navigation that would make poor "references".
+    try { if (baseHost && new URL(url).hostname !== baseHost) continue; } catch { continue; }
+    const key = url.split("#")[0];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push({ url, title: t.slice(0, 90) });
+    if (links.length >= 40) break;
+  }
 
   const text = decodeEntities(
     html
@@ -124,7 +174,13 @@ function extract(html, baseUrl) {
     .trim()
     .slice(0, 8000);
 
-  return { title: title.slice(0, 300), description: description.slice(0, 600), images: cleanImages, text };
+  return {
+    title: title.slice(0, 300),
+    description: description.slice(0, 600),
+    images,
+    links,
+    text,
+  };
 }
 
 async function fetchPage(rawUrl) {

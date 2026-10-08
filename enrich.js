@@ -18,6 +18,7 @@ async function enrichPost(id) {
   try {
     let context = post.body || "";
     let images = [];
+    let links = [];
     let sourceTitle = null;
 
     if (post.kind === "link" && post.url) {
@@ -25,7 +26,9 @@ async function enrichPost(id) {
       const { fetchPage } = require("./fetchPage");
       const page = await fetchPage(post.url);
       images = page.images || [];
+      links = page.links || [];
       sourceTitle = page.title || null;
+      const linkList = links.slice(0, 25).map((l) => `- ${l.title} :: ${l.url}`).join("\n");
       context = [
         `URL: ${post.url}`,
         `Page title: ${page.title || "(none)"}`,
@@ -34,6 +37,7 @@ async function enrichPost(id) {
         "",
         "Page text:",
         page.text || "(no readable text)",
+        linkList ? `\nLinks found on the page:\n${linkList}` : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -45,6 +49,17 @@ async function enrichPost(id) {
     card.images = images;
     card.source_url = post.url || null;
     card.source_title = sourceTitle;
+
+    // Keep only reference links that really exist on the fetched page (prevents
+    // the model from inventing URLs).
+    const norm = (u) => String(u).replace(/\/+$/, "");
+    const byUrl = new Map(links.map((l) => [norm(l.url), l]));
+    const srcUrl = norm(post.url || "");
+    card.references = (card.references || [])
+      .map((u) => byUrl.get(norm(u)))
+      .filter((l) => l && norm(l.url) !== srcUrl)
+      .slice(0, 3)
+      .map((l) => ({ url: l.url, title: l.title }));
 
     await db.query(
       `UPDATE posts

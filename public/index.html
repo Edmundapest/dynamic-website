@@ -94,6 +94,12 @@
   .note-text { font-size: 15px; line-height: 1.55; }
   .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--stroke); }
   .actions .spacer { flex: 1; }
+  .srclink { font-size: 13.5px; word-break: break-word; }
+  ul.refs { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  ul.refs li { font-size: 13px; line-height: 1.4; }
+  ul.refs a { word-break: break-word; }
+  .gallery { display: flex; gap: 6px; padding: 10px 16px 0; }
+  .gallery img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--stroke); }
 
   .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 8px 0; }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: var(--accent2); animation: spin .8s linear infinite; }
@@ -266,6 +272,17 @@ function makeCard(p) {
   banner.append(el("span", "badge", p.kind === "link" ? "link" : "note"));
   card.append(banner);
 
+  // Extra pictures (beyond the banner) as small thumbnails.
+  if (Array.isArray(card_.images) && card_.images.length > 1) {
+    const gal = el("div", "gallery");
+    for (const u of card_.images.slice(1, 4)) {
+      const im = el("img"); im.src = u; im.loading = "lazy"; im.alt = "";
+      im.onerror = () => im.remove();
+      gal.append(im);
+    }
+    if (gal.children.length) card.append(gal);
+  }
+
   const body = el("div", "cardbody");
 
   // Title + meta
@@ -284,9 +301,12 @@ function makeCard(p) {
     body.append(el("div", "note-text", p.body));
   } else {
     if (card_.source_url) {
-      const a = el("a", null, card_.source_title || card_.source_url);
+      const wrap = el("div");
+      wrap.append(el("div", "section-label", "Source"));
+      const a = el("a", "srclink", card_.source_title || card_.source_url);
       a.href = card_.source_url; a.target = "_blank"; a.rel = "noopener noreferrer";
-      a.style.fontSize = "13px"; body.append(a);
+      wrap.append(a);
+      body.append(wrap);
     }
     if (card_.summary) body.append(el("div", "summary", card_.summary));
     if (Array.isArray(card_.fun_facts) && card_.fun_facts.length) {
@@ -299,6 +319,17 @@ function makeCard(p) {
       const wrap = el("div"); wrap.append(el("div", "section-label", "Quirky quotes"));
       for (const q of card_.quotes) wrap.append(el("blockquote", "quote", q));
       body.append(wrap);
+    }
+    if (Array.isArray(card_.references) && card_.references.length) {
+      const wrap = el("div"); wrap.append(el("div", "section-label", "References"));
+      const ul = el("ul", "refs");
+      for (const r of card_.references) {
+        const li = el("li");
+        const a = el("a", null, r.title || r.url);
+        a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+        li.append(a); ul.append(li);
+      }
+      wrap.append(ul); body.append(wrap);
     }
   }
 

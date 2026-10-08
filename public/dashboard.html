@@ -32,7 +32,11 @@
   a { color: var(--accent2); }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
 
-  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .topnav { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 14px; }
+  .topnav a { color: var(--muted); text-decoration: none; }
+  .topnav a:hover { color: var(--text); }
+  .topnav a.active { color: var(--text); }
   .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .2px; }
   .logo {
     width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
@@ -127,7 +131,11 @@
 <div class="wrap">
   <header>
     <div class="brand"><div class="logo">⚡</div><div>live-db-demo</div></div>
-    <div class="pill"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></div>
+    <nav class="topnav">
+      <a href="/">Wall</a>
+      <a href="/dashboard" class="active">Dashboard</a>
+      <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></span>
+    </nav>
   </header>
 
   <section class="hero">

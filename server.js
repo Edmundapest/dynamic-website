@@ -254,6 +254,13 @@ app.listen(PORT, async () => {
   try {
     await db.init();
     console.log("Database ready (notes table ensured).");
+    // Self-heal: resume any posts left 'pending' by a restart/redploy so they
+    // don't stay stuck forever.
+    const { rows } = await db.query("SELECT id FROM posts WHERE status = 'pending'");
+    if (rows.length) {
+      console.log(`Resuming ${rows.length} pending post(s).`);
+      for (const r of rows) enrich.enqueue(r.id);
+    }
   } catch (err) {
     console.warn(`Database not initialized yet: ${err.message}`);
   }
