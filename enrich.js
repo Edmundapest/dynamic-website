@@ -73,33 +73,50 @@ async function enrichPost(id) {
         .filter(Boolean)
         .join("\n");
     } else if (post.body) {
-      // Text note: search the web so the AI can produce real details rather
-      // than admitting the note is thin.
-      const { webSearch } = require("./search");
-      const results = await webSearch(post.body.slice(0, 200), 6);
+      const parts = [`Poster's note: ${post.body}`];
+
+      // 1. Web search (best-effort — DuckDuckGo blocks many datacenter IPs, so
+      //    this may be empty on a cloud host but works from residential IPs).
+      let results = [];
+      try {
+        const { webSearch } = require("./search");
+        results = await webSearch(post.body.slice(0, 200), 6);
+      } catch {}
       if (results.length) {
         links = results.map((r) => ({ url: r.url, title: r.title }));
-        const block = results
-          .map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`)
-          .join("\n\n");
-        const linkList = links.map((l) => `- ${l.title} :: ${l.url}`).join("\n");
-        context = [
-          `Poster's note: ${post.body}`,
+        parts.push(
           "",
           "Web search results (use these for real, specific details):",
-          block,
-          `\nLinks found on the page:\n${linkList}`,
-        ].join("\n");
-        // Fetch the top result for fuller content (best-effort).
+          results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n")
+        );
         try {
           const { fetchPage } = require("./fetchPage");
           const top = await fetchPage(results[0].url);
           if (top.text) {
-            context += `\n\nContent of the top result (${results[0].url}):\n${top.text.slice(0, 4000)}`;
+            parts.push(`\nContent of the top result (${results[0].url}):\n${top.text.slice(0, 4000)}`);
           }
           sourceTitle = top.title || results[0].title;
         } catch {}
       }
+
+      // 2. Wikipedia background (reliable from cloud IPs) for concrete detail.
+      try {
+        const { findRelated } = require("./related");
+        const words = post.body
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter((w) => w.length >= 4)
+          .slice(0, 6);
+        const wiki = await findRelated([post.body.slice(0, 80), ...words]);
+        if (wiki) {
+          parts.push(`\nBackground (Wikipedia — ${wiki.title}):\n${String(wiki.extract || "").slice(0, 1500)}`);
+          if (!links.some((l) => l.url === wiki.url)) links.push({ url: wiki.url, title: wiki.title });
+        }
+      } catch {}
+
+      if (links.length) {
+        parts.push(`\nLinks found on the page:\n${links.map((l) => `- ${l.title} :: ${l.url}`).join("\n")}`);
+      }
+      context = parts.filter(Boolean).join("\n");
     }
 
     // Learn from reader thumbs: earlier liked/disliked cards shape this one.
