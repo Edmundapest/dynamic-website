@@ -45,8 +45,20 @@ async function pageInfo(title, px = 800) {
   };
 }
 
-// Tries candidate queries and prefers the first result that has an image;
-// falls back to the first result that at least has a link.
+// True when a query and a matched title share a meaningful word, so we don't
+// pick a wildly unrelated article (e.g. "Alternation of generations").
+function overlaps(query, title) {
+  const words = (s) =>
+    String(s)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4);
+  const qw = new Set(words(query));
+  return words(title).some((w) => qw.has(w));
+}
+
+// Tries candidate queries and prefers the first relevant result that has an
+// image; falls back to the first relevant result that at least has a link.
 async function findRelated(queries) {
   const tried = new Set();
   let linkOnly = null;
@@ -56,6 +68,7 @@ async function findRelated(queries) {
     tried.add(q.toLowerCase());
     const title = await searchTitle(q);
     if (!title) continue;
+    if (!overlaps(q, title)) continue; // ignore unrelated matches
     const info = await pageInfo(title);
     if (!info) continue;
     if (info.image) return info; // best: has a picture
