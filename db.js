@@ -67,6 +67,10 @@ async function init() {
   await getPool().query(
     `CREATE INDEX IF NOT EXISTS posts_created_at_idx ON posts (created_at DESC)`
   );
+  // Feedback (thumbs) and an optional poster-authored note, added additively.
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_up INT NOT NULL DEFAULT 0`);
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_down INT NOT NULL DEFAULT 0`);
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
 }
 
 async function query(text, params) {

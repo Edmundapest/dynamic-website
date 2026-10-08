@@ -7,6 +7,37 @@
 const db = require("./db");
 const ai = require("./ai");
 
+// Turns reader thumbs into an extra system message so the model drifts toward
+// what people liked and away from what they didn't.
+async function buildFeedbackGuidance() {
+  try {
+    const liked = await db.query(
+      `SELECT card->>'title' AS title FROM posts
+        WHERE status = 'ready' AND card IS NOT NULL AND votes_up > votes_down
+        ORDER BY (votes_up - votes_down) DESC, votes_up DESC LIMIT 3`
+    );
+    const disliked = await db.query(
+      `SELECT card->>'title' AS title FROM posts
+        WHERE status = 'ready' AND card IS NOT NULL AND votes_down > votes_up
+        ORDER BY (votes_down - votes_up) DESC LIMIT 3`
+    );
+    const list = (rows) =>
+      rows.map((r) => r.title).filter(Boolean).map((t) => `- ${t}`).join("\n");
+    const l = list(liked.rows);
+    const d = list(disliked.rows);
+    if (!l && !d) return "";
+    return [
+      "Reader feedback on earlier cards — adapt to what people like:",
+      l ? `LIKED (match this style/tone):\n${l}` : "",
+      d ? `DISLIKED (avoid this style/tone):\n${d}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
 async function enrichPost(id) {
   const { rows } = await db.query(
     "SELECT id, kind, url, body FROM posts WHERE id = $1",
@@ -43,9 +74,10 @@ async function enrichPost(id) {
         .join("\n");
     }
 
-    const card = await ai.buildCard(context);
-    // Carry the page's images + source through to the stored card so the wall
-    // can show real pictures (or fall back to a styled banner for text posts).
+    // Learn from reader thumbs: earlier liked/disliked cards shape this one.
+    const guidance = await buildFeedbackGuidance();
+    const card = await ai.buildCard(context, guidance);
+    // Carry the page's real images + source through to the stored card.
     card.images = images;
     card.source_url = post.url || null;
     card.source_title = sourceTitle;
@@ -61,23 +93,36 @@ async function enrichPost(id) {
       .slice(0, 3)
       .map((l) => ({ url: l.url, title: l.title }));
 
-    // No picture (e.g. a text note, or a link with no images)? Look up a related
-    // public article so every card gets a real image and a resource link.
+    // No real picture (text note, or a link without images)? Generate one from
+    // the text prompt, and attach a related article as a resource link.
     if (!card.images || card.images.length === 0) {
-      const { findRelated } = require("./related");
-      const byLen = (card.keywords || []).slice().sort((a, b) => b.length - a.length);
-      const related = await findRelated([
-        card.title,
-        (card.keywords || []).join(" "),
-        ...byLen,
-        post.body,
-      ]);
-      if (related) {
-        if (related.image) card.images = [related.image];
-        card.references = [
-          ...card.references,
-          { url: related.url, title: related.title },
-        ].slice(0, 3);
+      const { buildImagePrompt, generateCardImage } = require("./imagegen");
+      card.image_prompt = buildImagePrompt(card);
+
+      // Prefer a generated image; fall back to a related public photo.
+      const generated = await generateCardImage(card.image_prompt);
+      if (generated) {
+        card.images = [generated];
+        card.image_source = "ai";
+      } else {
+        const { findRelated } = require("./related");
+        const byLen = (card.keywords || []).slice().sort((a, b) => b.length - a.length);
+        const related = await findRelated([
+          card.title,
+          (card.keywords || []).join(" "),
+          ...byLen,
+          post.body,
+        ]);
+        if (related) {
+          if (related.image) {
+            card.images = [related.image];
+            card.image_source = "related";
+          }
+          card.references = [
+            ...card.references,
+            { url: related.url, title: related.title },
+          ].slice(0, 3);
+        }
       }
     }
 

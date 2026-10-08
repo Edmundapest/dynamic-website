@@ -75,11 +75,10 @@ Stay factual to the provided content. If the content is thin, be honest and conc
 
 // Builds the card object for a post. `context` is a string describing the
 // source (page title/description/text for links, or the raw text for notes).
-async function buildCard(context) {
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: context.slice(0, 12_000) },
-  ];
+async function buildCard(context, guidance = "") {
+  const messages = [{ role: "system", content: SYSTEM_PROMPT }];
+  if (guidance) messages.push({ role: "system", content: guidance });
+  messages.push({ role: "user", content: context.slice(0, 12_000) });
 
   let lastErr;
   // One retry on failure (transient network / malformed JSON).

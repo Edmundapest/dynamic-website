@@ -100,6 +100,17 @@
   ul.refs a { word-break: break-word; }
   .gallery { display: flex; gap: 6px; padding: 10px 16px 0; }
   .gallery img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--stroke); }
+  .votes { display: flex; align-items: center; gap: 6px; }
+  .vbtn { border: 1px solid var(--stroke); background: rgba(255,255,255,.05); color: var(--text);
+    border-radius: 9px; padding: 5px 9px; cursor: pointer; font: inherit; font-size: 13px; }
+  .vbtn:hover { background: rgba(255,255,255,.12); }
+  .vbtn:disabled { opacity: .6; }
+  .vbtn.up.on { border-color: var(--good); color: var(--good); }
+  .vbtn.down.on { border-color: var(--bad); color: #ff9b9b; }
+  .usernote { background: rgba(108,140,255,.10); border: 1px dashed var(--stroke); border-radius: 10px; padding: 10px 12px; }
+  .usernote .txt { font-size: 13.5px; line-height: 1.5; margin-top: 4px; }
+  .notebox { display: flex; gap: 8px; margin-top: 4px; }
+  .notebox input { padding: 9px 11px; }
 
   .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 8px 0; }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: var(--accent2); animation: spin .8s linear infinite; }
@@ -270,6 +281,11 @@ function makeCard(p) {
     banner.textContent = card_.emoji || (p.kind === "link" ? "🔗" : "📝");
   }
   banner.append(el("span", "badge", p.kind === "link" ? "link" : "note"));
+  if (card_.image_source === "ai") {
+    const b = el("span", "badge", "AI image");
+    b.style.left = "auto"; b.style.right = "10px";
+    banner.append(b);
+  }
   card.append(banner);
 
   // Extra pictures (beyond the banner) as small thumbnails.
@@ -333,9 +349,40 @@ function makeCard(p) {
     }
   }
 
-  // Actions (only when logged in)
+  // Poster's note: visible to everyone; editable when logged in.
+  if (p.user_note) {
+    const n = el("div", "usernote");
+    n.append(el("div", "section-label", "Poster's note"));
+    n.append(el("div", "txt", p.user_note));
+    body.append(n);
+  }
+
+  // Footer: public thumbs (steer future AI), plus edit controls when logged in.
+  const actions = el("div", "actions");
+  const votes = el("div", "votes");
+  const up = el("button", "vbtn up", "👍 " + (p.votes_up || 0));
+  const down = el("button", "vbtn down", "👎 " + (p.votes_down || 0));
+  up.onclick = async () => {
+    up.disabled = true;
+    try {
+      const d = await api("/api/posts/" + p.id + "/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 1 }) });
+      up.textContent = "👍 " + d.votes_up; up.classList.add("on");
+      toast("Thanks — that steers future cards");
+    } catch (e) { toast("Failed: " + e.message); }
+    finally { up.disabled = false; }
+  };
+  down.onclick = async () => {
+    down.disabled = true;
+    try {
+      const d = await api("/api/posts/" + p.id + "/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: -1 }) });
+      down.textContent = "👎 " + d.votes_down; down.classList.add("on");
+      toast("Noted — AI will adjust");
+    } catch (e) { toast("Failed: " + e.message); }
+    finally { down.disabled = false; }
+  };
+  votes.append(up, down);
+  actions.append(votes, el("div", "spacer"));
   if (authed) {
-    const actions = el("div", "actions");
     const regen = el("button", "btn ghost sm", "↻ Regenerate");
     regen.onclick = async () => {
       regen.disabled = true;
@@ -348,8 +395,30 @@ function makeCard(p) {
       try { await api("/api/posts/" + p.id, { method: "DELETE" }); toast("Deleted"); refresh(); }
       catch (e) { toast("Failed: " + e.message); }
     };
-    actions.append(regen, el("div", "spacer"), del);
-    body.append(actions);
+    actions.append(regen, del);
+  }
+  body.append(actions);
+
+  // Note editor (logged in only).
+  if (authed) {
+    const wrap = el("div");
+    wrap.append(el("div", "section-label", p.user_note ? "Edit your note" : "Add your note"));
+    const box = el("div", "notebox");
+    const input = el("input");
+    input.maxLength = 500;
+    input.placeholder = "A short note about this card…";
+    input.value = p.user_note || "";
+    const save = el("button", "btn ghost sm", "Save");
+    save.onclick = async () => {
+      try {
+        const d = await api("/api/posts/" + p.id + "/note", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note: input.value }) });
+        toast(d.user_note ? "Note saved" : "Note cleared");
+        refresh();
+      } catch (e) { toast("Failed: " + e.message); }
+    };
+    box.append(input, save);
+    wrap.append(box);
+    body.append(wrap);
   }
 
   card.append(body);

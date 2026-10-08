@@ -45,9 +45,11 @@ async function pageInfo(title, px = 800) {
   };
 }
 
-// Tries a list of candidate queries and returns the first useful result.
+// Tries candidate queries and prefers the first result that has an image;
+// falls back to the first result that at least has a link.
 async function findRelated(queries) {
   const tried = new Set();
+  let linkOnly = null;
   for (const raw of queries) {
     const q = String(raw || "").trim();
     if (!q || q.length < 3 || tried.has(q.toLowerCase())) continue;
@@ -55,9 +57,11 @@ async function findRelated(queries) {
     const title = await searchTitle(q);
     if (!title) continue;
     const info = await pageInfo(title);
-    if (info) return info;
+    if (!info) continue;
+    if (info.image) return info; // best: has a picture
+    if (!linkOnly) linkOnly = info; // keep as a fallback link
   }
-  return null;
+  return linkOnly;
 }
 
 module.exports = { findRelated, searchTitle, pageInfo };

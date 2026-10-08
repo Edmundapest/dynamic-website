@@ -70,7 +70,7 @@ function detectUrl(text) {
 app.get("/api/posts", async (_req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, author, body, kind, url, status, card, error, created_at, updated_at
+      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, created_at, updated_at
          FROM posts ORDER BY created_at DESC LIMIT 100`
     );
     res.json({ ok: true, posts: rows });
@@ -124,6 +124,45 @@ app.delete("/api/posts/:id", auth.requireAuth, async (req, res) => {
   try {
     const { rowCount } = await db.query("DELETE FROM posts WHERE id = $1", [id]);
     res.json({ ok: true, deleted: rowCount });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Public thumbs feedback — anyone viewing can rate; the votes steer future cards.
+app.post("/api/posts/:id/vote", async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  const value = Number(req.body && req.body.value);
+  if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
+  if (value !== 1 && value !== -1) {
+    return res.status(400).json({ ok: false, error: "value must be 1 or -1" });
+  }
+  try {
+    const col = value === 1 ? "votes_up" : "votes_down"; // safe: fixed set
+    const { rows } = await db.query(
+      `UPDATE posts SET ${col} = ${col} + 1 WHERE id = $1 RETURNING votes_up, votes_down`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: "post not found" });
+    res.json({ ok: true, votes_up: rows[0].votes_up, votes_down: rows[0].votes_down });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Poster-authored note (auth-gated): one editable note per card.
+app.post("/api/posts/:id/note", auth.requireAuth, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  const note = (req.body && req.body.note ? String(req.body.note) : "").trim();
+  if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
+  if (note.length > 500) return res.status(400).json({ ok: false, error: "note too long (max 500)" });
+  try {
+    const { rows } = await db.query(
+      `UPDATE posts SET user_note = $1, updated_at = now() WHERE id = $2 RETURNING user_note`,
+      [note || null, id]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: "post not found" });
+    res.json({ ok: true, user_note: rows[0].user_note });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
