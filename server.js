@@ -10,6 +10,7 @@ const db = require("./db");
 const auth = require("./auth");
 const enrich = require("./enrich");
 const push = require("./push");
+const icons = require("./icons");
 
 const app = express();
 
@@ -92,9 +93,58 @@ app.get("/sw.js", (_req, res) => {
   res.setHeader("Service-Worker-Allowed", "/");
   res.sendFile(path.join(__dirname, "public", "sw.js"));
 });
-app.get("/manifest.webmanifest", (_req, res) => {
-  res.setHeader("Content-Type", "application/manifest+json");
-  res.sendFile(path.join(__dirname, "public", "manifest.webmanifest"));
+// PWA manifest. When the client passes its theme colors we return themed icon
+// URLs (so a fresh "Add to Home Screen" matches the chosen theme); otherwise we
+// fall back to the static icons. Public — the OS fetches these during install.
+app.get("/manifest.webmanifest", (req, res) => {
+  const manifest = {
+    name: "The Wall",
+    short_name: "The Wall",
+    description: "A shared wall of links and notes, each investigated by AI.",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    orientation: "portrait",
+    background_color: "#0a0e1a",
+    theme_color: "#0a0e1a",
+  };
+  if (req.query.accent || req.query.accent2 || req.query.bg) {
+    const accent = icons.normHex(req.query.accent, "#6c8cff");
+    const accent2 = icons.normHex(req.query.accent2, "#22d3ee");
+    const bg = icons.normHex(req.query.bg, "#0a0e1a");
+    const q =
+      `accent=${encodeURIComponent(accent)}` +
+      `&accent2=${encodeURIComponent(accent2)}` +
+      `&bg=${encodeURIComponent(bg)}`;
+    manifest.background_color = bg;
+    manifest.theme_color = bg;
+    manifest.icons = [
+      { src: `/icon.png?size=192&${q}`, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: `/icon.png?size=512&${q}`, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: `/icon.png?size=512&${q}&maskable=1`, sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ];
+  } else {
+    manifest.icons = [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ];
+  }
+  res.type("application/manifest+json").send(JSON.stringify(manifest));
+});
+
+// Themed app icon, e.g. /icon.png?size=192&accent=%23a855f7&accent2=%2314b8a6&bg=%23140a24
+// Public, and cached — handy as both the favicon and the install-time icon.
+app.get("/icon.png", (req, res) => {
+  const size = Math.min(Math.max(parseInt(req.query.size, 10) || 192, 16), 1024);
+  const colors = {
+    accent: icons.normHex(req.query.accent, "#6c8cff"),
+    accent2: icons.normHex(req.query.accent2, "#22d3ee"),
+    bg: icons.normHex(req.query.bg, "#0a0e1a"),
+  };
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.end(icons.render(size, colors));
 });
 app.use(express.static(path.join(__dirname, "public")));
 

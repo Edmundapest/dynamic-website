@@ -106,6 +106,23 @@
     Object.keys(vars).forEach(function (k) { root.style.setProperty(k, vars[k]); });
   }
 
+  // Point the favicon, Apple touch icon and PWA manifest at a themed icon, so
+  // the browser tab and a FRESH "Add to Home Screen" match the chosen colors.
+  // (An icon already on a home screen cannot change — the OS caches it.)
+  function setLink(rel, href) {
+    var link = document.querySelector('link[rel="' + rel + '"]');
+    if (!link) { link = document.createElement("link"); link.rel = rel; document.head.appendChild(link); }
+    link.href = href;
+  }
+  function updateIconLinks(t) {
+    var q = "accent=" + encodeURIComponent(t.accent) +
+            "&accent2=" + encodeURIComponent(t.accent2) +
+            "&bg=" + encodeURIComponent(t.bg);
+    setLink("icon", "/icon.png?size=64&" + q);
+    setLink("apple-touch-icon", "/icon.png?size=180&" + q);
+    setLink("manifest", "/manifest.webmanifest?" + q);
+  }
+
   // --- state ---------------------------------------------------------------
   var state = load() || { type: "preset", id: "midnight" };
 
@@ -132,7 +149,11 @@
     }
     return presetById(state.id);
   }
-  function apply() { applyVars(buildVars(currentTheme())); }
+  function apply() {
+    var t = currentTheme();
+    applyVars(buildVars(t));
+    updateIconLinks(t);
+  }
 
   // Apply immediately (script sits in <head>, before the body paints).
   apply();

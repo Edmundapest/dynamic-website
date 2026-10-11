@@ -79,6 +79,24 @@ colors as CSS custom properties on `<html>` (overriding each page's `:root`), an
 injects the picker UI. It's loaded in `<head>` so there's no flash of the default
 theme. See `window.WallTheme` in the console for the theme list and a `set()` API.
 
+### Themed app icon
+
+The theme also re-tints the **icon** via a small server generator (`icons.js` +
+`GET /icon.png?size=…&accent=…&accent2=…&bg=…`), so it matches your colors:
+
+- the **browser tab / bookmark favicon** updates live when you change theme;
+- a **fresh "Add to Home Screen"** captures the themed icon — iOS reads the
+  `apple-touch-icon` link, Android reads the manifest, and `theme.js` rewrites
+  both to themed URLs (`/icon.png?size=180&…`, `/manifest.webmanifest?accent=…`),
+  which the server renders with `theme_color`/`background_color` set to your
+  background.
+
+**Limitation:** an icon that is *already* on a home screen **cannot** be changed
+afterward — the OS launcher caches it and there is no web API to restyle it.
+Re-adding to the Home Screen (after choosing a theme) picks up the new icon.
+Themed PNGs/icons come from the server route, which is public (the OS fetches it
+during install, with no cookie).
+
 ## Security
 
 The wall and dashboard are **private**: everything except `/healthz`, the
