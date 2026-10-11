@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#0a0e1a" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<script src="theme.js"></script>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="The Wall" />
@@ -19,6 +20,11 @@
     --stroke: rgba(255,255,255,0.10);
     --text: #e8ecf8; --muted: #8a93ad;
     --accent: #6c8cff; --accent2: #22d3ee; --good: #34e39b; --warn: #feca57; --bad: #ff6b6b;
+    /* Themeable extras (overridden per-browser by theme.js). */
+    --glow-a: 108,140,255; --glow-b: 34,211,238; --glow-c: 52,227,155;
+    --hero-a: #ffffff; --hero-b: #b9c6ff; --hero-c: #7ee7ff;
+    --input-bg: rgba(0,0,0,.25); --btn-bg: rgba(255,255,255,.06); --btn-hover: rgba(255,255,255,.12);
+    --toast-bg: #111a30;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -26,9 +32,9 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     color: var(--text);
     background:
-      radial-gradient(1100px 600px at 12% -8%, rgba(108,140,255,0.22), transparent 60%),
-      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,0.15), transparent 55%),
-      radial-gradient(900px 700px at 50% 130%, rgba(52,227,155,0.10), transparent 60%),
+      radial-gradient(1100px 600px at 12% -8%, rgba(var(--glow-a),0.22), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(var(--glow-b),0.15), transparent 55%),
+      radial-gradient(900px 700px at 50% 130%, rgba(var(--glow-c),0.10), transparent 60%),
       linear-gradient(180deg, var(--bg), var(--bg2));
     min-height: 100vh; -webkit-font-smoothing: antialiased;
   }
@@ -51,7 +57,7 @@
 
   .hero { margin: 46px 0 26px; }
   .hero h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.02; margin: 0 0 12px; font-weight: 800; letter-spacing: -1.6px;
-    background: linear-gradient(100deg, #fff 8%, #b9c6ff 45%, #7ee7ff 90%);
+    background: linear-gradient(100deg, var(--hero-a) 8%, var(--hero-b) 45%, var(--hero-c) 90%);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero p { color: var(--muted); font-size: clamp(15px, 2vw, 18px); max-width: 660px; line-height: 1.6; margin: 0; }
 
@@ -59,16 +65,16 @@
   .panel h2 { margin: 0 0 6px; font-size: 17px; }
   .hint { color: var(--muted); font-size: 13px; margin: 0; }
 
-  .btn { appearance: none; border: 1px solid var(--stroke); background: rgba(255,255,255,.06); color: var(--text);
+  .btn { appearance: none; border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
     font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 11px; cursor: pointer; transition: .15s; white-space: nowrap; }
-  .btn:hover { background: rgba(255,255,255,.12); transform: translateY(-1px); }
+  .btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
   .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
   .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #071022; box-shadow: 0 10px 26px rgba(108,140,255,.35); }
   .btn.ghost { background: transparent; }
   .btn.sm { padding: 7px 11px; font-size: 13px; border-radius: 9px; }
   .btn.danger { color: #ff9b9b; border-color: rgba(255,107,107,.35); }
 
-  input, textarea { width: 100%; font: inherit; color: var(--text); background: rgba(0,0,0,.25);
+  input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--input-bg);
     border: 1px solid var(--stroke); border-radius: 11px; padding: 12px 14px; outline: none; transition: .15s; }
   input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,140,255,.18); }
   textarea { resize: vertical; min-height: 54px; }
@@ -126,7 +132,7 @@
   .empty { color: var(--muted); text-align: center; padding: 46px 12px; border: 1px dashed var(--stroke); border-radius: 16px; grid-column: 1 / -1; }
 
   .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
-    background: #111a30; border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
+    background: var(--toast-bg); border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
     box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 50; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   footer { color: var(--muted); font-size: 13px; margin-top: 34px; text-align: center; }

@@ -22,6 +22,7 @@ demo dashboard now lives at `/dashboard`.
 | `push.js` | Web Push: VAPID setup, subscription storage, broadcast on new posts. |
 | `public/index.html` | The wall (home page). |
 | `public/dashboard.html` | The original DB dashboard at `/dashboard`. |
+| `public/theme.js` | Per-browser theme engine: 24 presets + custom RGB picker (localStorage). |
 | `public/sw.js` | Service worker: shows push notifications, opens the app on tap. |
 | `public/manifest.webmanifest` | PWA manifest (installable app + icons). |
 | `public/icon-*.png`, `public/apple-touch-icon.png` | App icons. |
@@ -58,6 +59,25 @@ demo dashboard now lives at `/dashboard`.
    (SSRF-guarded), then asks DeepSeek for a JSON card.
 3. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
 4. The wall polls `GET /api/posts` and renders pending → ready cards live.
+
+## Themes
+
+The look is customizable per **browser/device** — the app has a single shared
+password and no user accounts, so each visitor's choice is stored in
+`localStorage` (key `wall_theme_v1`), not on the server.
+
+- **24 presets** (15 dark, 9 light): Midnight, Nebula, Emerald, Sunset, Ocean,
+  Crimson, Cyberpunk, Forest, Mono, Amber, Aurora, Slate, Rose, Indigo, Teal,
+  Daybreak, Paper, Mint, Sky, Lavender, Sand, Cloud, Peach, Matcha.
+- **Custom RGB picker**: choose accent, accent-2 and background colors; text and
+  surfaces adapt automatically based on the background's luminance.
+- Open it with the floating **🎨** button (bottom-right on both the wall and the
+  dashboard). The choice applies instantly and persists across reloads.
+
+`public/theme.js` is the whole system: it defines the presets, applies the chosen
+colors as CSS custom properties on `<html>` (overriding each page's `:root`), and
+injects the picker UI. It's loaded in `<head>` so there's no flash of the default
+theme. See `window.WallTheme` in the console for the theme list and a `set()` API.
 
 ## Security
 

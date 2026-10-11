@@ -15,6 +15,13 @@
     --accent: #6c8cff;
     --accent2: #22d3ee;
     --good: #34e39b;
+    --warn: #feca57;
+    --bad: #ff6b6b;
+    /* Themeable extras (overridden per-browser by theme.js). */
+    --glow-a: 108,140,255; --glow-b: 34,211,238; --glow-c: 52,227,155;
+    --hero-a: #ffffff; --hero-b: #b9c6ff; --hero-c: #7ee7ff;
+    --input-bg: rgba(0,0,0,.25); --btn-bg: rgba(255,255,255,.06); --btn-hover: rgba(255,255,255,.12);
+    --toast-bg: #111a30;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -22,9 +29,9 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     color: var(--text);
     background:
-      radial-gradient(1100px 600px at 15% -10%, rgba(108,140,255,0.25), transparent 60%),
-      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,0.16), transparent 55%),
-      radial-gradient(800px 700px at 50% 120%, rgba(52,227,155,0.12), transparent 60%),
+      radial-gradient(1100px 600px at 15% -10%, rgba(var(--glow-a),0.25), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(var(--glow-b),0.16), transparent 55%),
+      radial-gradient(800px 700px at 50% 120%, rgba(var(--glow-c),0.12), transparent 60%),
       linear-gradient(180deg, var(--bg), var(--bg2));
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
@@ -55,7 +62,7 @@
   .hero h1 {
     font-size: clamp(38px, 7vw, 74px); line-height: 1.02; margin: 0 0 14px; font-weight: 800;
     letter-spacing: -1.5px;
-    background: linear-gradient(100deg, #fff 10%, #b9c6ff 45%, #7ee7ff 90%);
+    background: linear-gradient(100deg, var(--hero-a) 10%, var(--hero-b) 45%, var(--hero-c) 90%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .hero p { color: var(--muted); font-size: clamp(15px, 2vw, 18px); max-width: 640px; line-height: 1.6; margin: 0; }
@@ -80,17 +87,17 @@
   canvas { width: 100%; height: 96px; display: block; border-radius: 12px; background: rgba(0,0,0,.22); border: 1px solid var(--stroke); }
 
   .btn {
-    appearance: none; border: 1px solid var(--stroke); background: rgba(255,255,255,.06); color: var(--text);
+    appearance: none; border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
     font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 11px; cursor: pointer; transition: .15s; white-space: nowrap;
   }
-  .btn:hover { background: rgba(255,255,255,.12); transform: translateY(-1px); }
+  .btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
   .btn:active { transform: translateY(0); }
   .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
   .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #071022; box-shadow: 0 10px 26px rgba(108,140,255,.35); }
   .btn.ghost { background: transparent; }
 
   input, textarea {
-    width: 100%; font: inherit; color: var(--text); background: rgba(0,0,0,.25);
+    width: 100%; font: inherit; color: var(--text); background: var(--input-bg);
     border: 1px solid var(--stroke); border-radius: 11px; padding: 12px 14px; outline: none; transition: .15s;
   }
   input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,140,255,.18); }
@@ -118,7 +125,7 @@
 
   .toast {
     position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
-    background: #111a30; border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
+    background: var(--toast-bg); border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
     box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 50;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -126,6 +133,7 @@
   .flash { animation: flash 1s ease; }
   @keyframes flash { 0% { background: rgba(108,140,255,.28); } 100% { background: rgba(255,255,255,.035); } }
 </style>
+<script src="theme.js"></script>
 </head>
 <body>
 <div class="wrap">
