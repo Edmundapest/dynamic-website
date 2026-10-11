@@ -33,21 +33,23 @@ demo dashboard now lives at `/dashboard`.
 
 | Route | What it does |
 |---|---|
-| `GET /` | The wall: post feed + gated composer. |
-| `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). |
-| `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. |
-| `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. |
-| `GET /api/posts` | Public feed of posts (with their AI cards). |
+| `GET /` | The wall. Without the password it shows only the login gate — no feed. |
+| `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). Data requires login. |
+| `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. **Public.** |
+| `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
+| `GET /api/posts` | **Auth.** The private feed of posts (with their AI cards). |
 | `POST /api/posts` | **Auth.** Create a post `{ author, body }`; returns `pending`, enriches in the background. |
 | `POST /api/posts/:id/regenerate` | **Auth.** Re-run AI enrichment for a post. |
 | `DELETE /api/posts/:id` | **Auth.** Delete a post. |
-| `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | Dashboard stats/probes. |
-| `POST /api/posts/:id/vote` | Public thumbs up/down (steers future cards). |
+| `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | **Auth.** Dashboard stats/probes. |
+| `POST /api/posts/:id/vote` | **Auth.** Thumbs up/down (steers future cards). |
 | `POST /api/posts/:id/note` | **Auth.** Poster-authored note for a card. |
-| `GET /api/push/public-key` | VAPID public key for creating a subscription. |
-| `POST /api/push/subscribe` · `POST /api/push/unsubscribe` | Save/remove a device's push subscription. |
-| `GET /api/push/status` | Whether push is configured + subscriber count. |
-| `GET/POST/DELETE /api/notes` · `POST /api/seed` · `POST /api/reset` | The dashboard's demo data. |
+| `GET /api/push/public-key` · `GET /api/push/status` | **Public.** VAPID key + whether push is configured. |
+| `POST /api/push/subscribe` · `POST /api/push/unsubscribe` | **Auth.** Save/remove a device's push subscription. |
+| `GET/POST/DELETE /api/notes` · `POST /api/seed` · `POST /api/reset` | **Auth.** The dashboard's demo data. |
+
+> Every route marked **Auth.** requires the shared-password session cookie; an
+> unauthenticated request gets `401 { ok:false, error:"authentication required" }`.
 
 ### How a post becomes a card
 
@@ -56,6 +58,42 @@ demo dashboard now lives at `/dashboard`.
    (SSRF-guarded), then asks DeepSeek for a JSON card.
 3. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
 4. The wall polls `GET /api/posts` and renders pending → ready cards live.
+
+## Security
+
+The wall and dashboard are **private**: everything except `/healthz`, the
+auth/session routes, and the two public push endpoints requires the shared
+password. What's in place:
+
+- **All data is auth-gated.** Reads (`/api/posts`, images, stats, notes) and
+  writes return `401` without a valid session cookie, so an unauthorized visitor
+  sees no posts and can't post.
+- **Rate limiting** (`express-rate-limit`, correct client IP via
+  `app.set("trust proxy", 1)`):
+  - global — 240 requests/min per IP;
+  - `/api/login` — 10 attempts / 15 min per IP, counting only failures (brute-force
+    protection for the shared password);
+  - writes — 30/min per IP (posts, notes, seed, reset, votes, push subscribe).
+- **Security headers** via `helmet`, with a `Content-Security-Policy` locked to
+  `'self'` (plus inline styles/scripts and `https:` images, which the pages need)
+  and `frame-ancestors 'none'`.
+- **Request timeouts** (`headersTimeout`/`requestTimeout`/`keepAliveTimeout`) to
+  blunt slowloris/resource-exhaustion, and a body cap (`express.json` 16 kB).
+- **Auth cookie** is `HttpOnly`, `SameSite=Lax`, and `Secure` in production;
+  the password is compared in constant time and the cookie is HMAC-signed.
+
+### What this does *not* cover
+
+In-app rate limiting stops brute force and request-level abuse, but **not a
+volumetric DDoS** — that has to be absorbed at the network edge. If you want
+strong DDoS protection, put **Cloudflare** (free) in front: add a custom domain
+to Render, move DNS to Cloudflare, and enable its proxy + "Under Attack" mode.
+For a sharper edge, add Cloudflare WAF/rate-limiting rules there too.
+
+`POST_PASSWORD` is one shared secret for everyone — fine for a small private
+wall, but it's all-or-nothing: anyone with the password can post *and* delete.
+If you need per-person accounts later, that's a bigger change (users table +
+per-user sessions).
 
 ## Push notifications (PWA)
 

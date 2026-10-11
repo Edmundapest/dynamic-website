@@ -228,7 +228,7 @@ function fmtUptime(s) {
 async function api(url, opts) {
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  if (!r.ok) { const e = new Error(data.error || ("HTTP " + r.status)); e.status = r.status; throw e; }
   return data;
 }
 
@@ -314,6 +314,12 @@ async function refresh() {
     $("statRegion").textContent = stats.region;
     renderNotes(data.notes);
   } catch (e) {
+    // 401 => not logged in: the dashboard is private too now.
+    if (e.status === 401) {
+      setStatus(false, "login required");
+      $("wall").innerHTML = '<div class="empty">🔒 This dashboard is private.<br><small>Log in from the <a href="/">Wall</a> page, then come back.</small></div>';
+      return;
+    }
     setStatus(false, "offline");
     $("wall").innerHTML = '<div class="empty">Couldn’t reach the database.<br><small>' + e.message + '</small></div>';
   }

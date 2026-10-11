@@ -145,17 +145,17 @@
 
   <section class="hero">
     <h1>The Wall</h1>
-    <p>Anyone can read. Posting is unlocked with the shared password. Drop a link or a note and AI
-      investigates it, turning your post into a card with a summary, fun facts and quirky quotes.</p>
+    <p>This wall is private. Enter the shared password to see what's been posted and add your own.
+      Drop a link or a note and AI turns it into a card with a summary, fun facts and quirky quotes.</p>
   </section>
 
-  <!-- Composer: locked until logged in -->
+  <!-- Login gate: the wall's data stays hidden until this passes. -->
   <div class="panel" id="lockedPanel">
-    <h2>Posting is locked 🔒</h2>
-    <p class="hint">Enter the shared password to unlock posting. Viewers don't need it.</p>
+    <h2>🔒 This wall is private</h2>
+    <p class="hint">Enter the shared password to view the wall and post. Only people with the password can see anything here.</p>
     <div class="locked" style="margin-top:12px">
       <input id="password" type="password" placeholder="Shared password" style="max-width:260px" />
-      <button class="btn primary" id="btnLogin">Unlock posting</button>
+      <button class="btn primary" id="btnLogin">Unlock</button>
       <span class="hint" id="loginMsg"></span>
     </div>
   </div>
@@ -185,7 +185,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="latestPanel" style="display:none">
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">Latest <span class="hint" id="count"></span></h2>
       <button class="btn ghost sm" id="btnRefresh">Refresh</button>
@@ -231,6 +231,7 @@ function setAuthed(v) {
   authed = v;
   $("composerPanel").style.display = v ? "" : "none";
   $("lockedPanel").style.display = v ? "none" : "";
+  $("latestPanel").style.display = v ? "" : "none";
 }
 
 async function checkSession() {
@@ -246,14 +247,14 @@ $("btnLogin").onclick = async () => {
     await api("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
     $("password").value = "";
     setAuthed(true);
-    toast("Posting unlocked");
-    render(feedCache);
+    toast("Unlocked");
+    refresh();
   } catch (e) { $("loginMsg").textContent = e.message; }
 };
 $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
 $("btnLogout").onclick = async () => {
   try { await api("/api/logout", { method: "POST" }); } catch {}
-  setAuthed(false); toast("Logged out"); render(feedCache);
+  setAuthed(false); toast("Logged out"); feedCache = [];
 };
 
 $("btnPost").onclick = async () => {
@@ -468,6 +469,8 @@ async function refresh() {
     clearTimeout(polling);
     polling = setTimeout(refresh, anyPending ? 3000 : 8000);
   } catch (e) {
+    // 401 => not logged in: show the gate and stop polling.
+    if (e.status === 401) { setAuthed(false); return; }
     $("liveDot").classList.remove("on"); $("liveText").textContent = "offline";
     clearTimeout(polling);
     polling = setTimeout(refresh, 8000);

@@ -4,13 +4,80 @@ require("dotenv").config();
 
 const path = require("path");
 const express = require("express");
+const helmet = require("helmet");
+const { rateLimit } = require("express-rate-limit");
 const db = require("./db");
 const auth = require("./auth");
 const enrich = require("./enrich");
 const push = require("./push");
 
 const app = express();
+
+// Render terminates TLS at a proxy in front of us. Trust exactly one hop so
+// req.ip is the real client address — required for rate limiting to be correct
+// (trusting all proxies would let clients spoof X-Forwarded-For).
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// Security headers. The CSP is deliberately relaxed in two places: inline
+// styles/scripts (the pages are self-contained single files) and https images
+// (AI cards embed external photos). Everything else is locked to 'self'.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "https:", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+        manifestSrc: ["'self'"],
+        workerSrc: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // don't block external card images
+    referrerPolicy: { policy: "no-referrer" },
+  })
+);
+
 app.use(express.json({ limit: "16kb" }));
+
+// --- Rate limiting (brute force + flood defence) -------------------------
+// A broad per-IP cap on everything...
+app.use(
+  rateLimit({
+    windowMs: 60_000,
+    limit: 240,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { ok: false, error: "too many requests, slow down" },
+  })
+);
+
+// ...a strict cap on login (the shared password is brute-forceable otherwise),
+// counting only failures so a legitimate login never burns the budget...
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { ok: false, error: "too many login attempts, try again later" },
+});
+
+// ...and a tighter cap on writes, which cost DB work (and, for posts, AI calls).
+const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { ok: false, error: "too many write requests, slow down" },
+});
 
 // The current demo dashboard now lives at /dashboard; "/" is the wall page
 // (served automatically by the static handler's index.html).
@@ -47,7 +114,7 @@ app.get("/healthz", (_req, res) => {
 });
 
 // --- Session auth (shared posting password) ------------------------------
-app.post("/api/login", (req, res) => {
+app.post("/api/login", loginLimiter, (req, res) => {
   const password = (req.body && req.body.password) || "";
   if (!auth.checkPassword(password)) {
     return res.status(401).json({ ok: false, error: "wrong password" });
@@ -82,7 +149,7 @@ app.get("/api/push/public-key", (_req, res) => {
   res.json({ ok: true, publicKey: push.publicKey() });
 });
 
-app.post("/api/push/subscribe", async (req, res) => {
+app.post("/api/push/subscribe", writeLimiter, auth.requireAuth, async (req, res) => {
   const sub = req.body && req.body.subscription;
   if (!push.validSubscription(sub)) {
     return res.status(400).json({ ok: false, error: "invalid subscription" });
@@ -98,7 +165,7 @@ app.post("/api/push/subscribe", async (req, res) => {
   }
 });
 
-app.post("/api/push/unsubscribe", async (req, res) => {
+app.post("/api/push/unsubscribe", writeLimiter, auth.requireAuth, async (req, res) => {
   const endpoint = req.body && req.body.endpoint;
   try {
     const removed = await push.removeSubscription(endpoint);
@@ -123,7 +190,7 @@ function detectUrl(text) {
   }
 }
 
-app.get("/api/posts", async (_req, res) => {
+app.get("/api/posts", auth.requireAuth, async (_req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, created_at, updated_at
@@ -136,7 +203,7 @@ app.get("/api/posts", async (_req, res) => {
 });
 
 // Serves a stored AI-generated image (kept out of the JSON feed).
-app.get("/api/posts/:id/image", async (req, res) => {
+app.get("/api/posts/:id/image", auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).end();
   try {
@@ -152,7 +219,7 @@ app.get("/api/posts/:id/image", async (req, res) => {
   }
 });
 
-app.post("/api/posts", auth.requireAuth, async (req, res) => {
+app.post("/api/posts", writeLimiter, auth.requireAuth, async (req, res) => {
   const body = (req.body && req.body.body ? String(req.body.body) : "").trim();
   let author = (req.body && req.body.author ? String(req.body.author) : "").trim();
   if (author.length > 40) author = author.slice(0, 40);
@@ -180,7 +247,7 @@ app.post("/api/posts", auth.requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/posts/:id/regenerate", auth.requireAuth, async (req, res) => {
+app.post("/api/posts/:id/regenerate", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
   try {
@@ -196,7 +263,7 @@ app.post("/api/posts/:id/regenerate", auth.requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/posts/:id", auth.requireAuth, async (req, res) => {
+app.delete("/api/posts/:id", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
   try {
@@ -208,7 +275,7 @@ app.delete("/api/posts/:id", auth.requireAuth, async (req, res) => {
 });
 
 // Public thumbs feedback — anyone viewing can rate; the votes steer future cards.
-app.post("/api/posts/:id/vote", async (req, res) => {
+app.post("/api/posts/:id/vote", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   const value = Number(req.body && req.body.value);
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
@@ -229,7 +296,7 @@ app.post("/api/posts/:id/vote", async (req, res) => {
 });
 
 // Poster-authored note (auth-gated): one editable note per card.
-app.post("/api/posts/:id/note", auth.requireAuth, async (req, res) => {
+app.post("/api/posts/:id/note", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   const note = (req.body && req.body.note ? String(req.body.note) : "").trim();
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
@@ -249,7 +316,7 @@ app.post("/api/posts/:id/note", auth.requireAuth, async (req, res) => {
 // --- Data API (every route here proves the database is live) -------------
 
 // Aggregate stats: row count, engine version, round-trip timing.
-app.get("/api/stats", async (_req, res) => {
+app.get("/api/stats", auth.requireAuth, async (_req, res) => {
   try {
     const { result: countRes, ms: countMs } = await db.timedQuery(
       "SELECT count(*)::int AS n FROM notes"
@@ -275,7 +342,7 @@ app.get("/api/stats", async (_req, res) => {
 });
 
 // Raw DB ping returning how many ms the round-trip took.
-app.get("/api/ping", async (_req, res) => {
+app.get("/api/ping", auth.requireAuth, async (_req, res) => {
   try {
     const { ms } = await db.timedQuery("SELECT 1");
     res.json({ ok: true, ms: Number(ms.toFixed(1)) });
@@ -284,7 +351,7 @@ app.get("/api/ping", async (_req, res) => {
   }
 });
 
-app.get("/api/notes", async (_req, res) => {
+app.get("/api/notes", auth.requireAuth, async (_req, res) => {
   try {
     const { result, ms } = await db.timedQuery(
       "SELECT id, author, body, color, created_at FROM notes ORDER BY id DESC LIMIT 200"
@@ -295,7 +362,7 @@ app.get("/api/notes", async (_req, res) => {
   }
 });
 
-app.post("/api/notes", async (req, res) => {
+app.post("/api/notes", writeLimiter, auth.requireAuth, async (req, res) => {
   const body = (req.body && req.body.body ? String(req.body.body) : "").trim();
   let author = (req.body && req.body.author ? String(req.body.author) : "").trim();
   if (!body) return res.status(400).json({ ok: false, error: "body is required" });
@@ -314,7 +381,7 @@ app.post("/api/notes", async (req, res) => {
   }
 });
 
-app.delete("/api/notes/:id", async (req, res) => {
+app.delete("/api/notes/:id", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
   try {
@@ -326,7 +393,7 @@ app.delete("/api/notes/:id", async (req, res) => {
 });
 
 // Insert a burst of demo rows in a single statement.
-app.post("/api/seed", async (req, res) => {
+app.post("/api/seed", writeLimiter, auth.requireAuth, async (req, res) => {
   const n = Math.min(Math.max(Number.parseInt(req.body && req.body.n, 10) || 10, 1), 100);
   const samples = [
     "Ship it 🚀", "This row came from Postgres", "SELECT * FROM good_vibes",
@@ -356,7 +423,7 @@ app.post("/api/seed", async (req, res) => {
   }
 });
 
-app.post("/api/reset", async (_req, res) => {
+app.post("/api/reset", writeLimiter, auth.requireAuth, async (_req, res) => {
   try {
     const { rowCount } = await db.query("TRUNCATE notes RESTART IDENTITY");
     res.json({ ok: true, deleted: rowCount });
@@ -366,7 +433,7 @@ app.post("/api/reset", async (_req, res) => {
 });
 
 // --- Boot ----------------------------------------------------------------
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
   try {
     await db.init();
@@ -382,3 +449,10 @@ app.listen(PORT, async () => {
     console.warn(`Database not initialized yet: ${err.message}`);
   }
 });
+
+// Slowloris / resource-exhaustion defence: bound how long a request may take and
+// how long idle connections linger. Legitimate requests here are short — AI
+// enrichment runs out-of-band — so nothing needs more than a few seconds.
+server.headersTimeout = 20_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 20_000;
