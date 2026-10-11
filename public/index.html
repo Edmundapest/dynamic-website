@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>The Wall</title>
-<meta name="description" content="A shared wall of links and notes, each investigated by AI." />
+<meta name="description" content="A private wall for the family — links and notes, each investigated by AI." />
 <meta name="theme-color" content="#0a0e1a" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -40,28 +40,31 @@
   }
   a { color: var(--accent2); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 20px 90px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 18px 16px 120px; }
 
-  header { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
-  .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .2px; }
-  .logo { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-size: 20px;
+  /* Top bar (social header) */
+  header.appbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 10px 4px 12px; margin: -18px -16px 8px; padding-left: 16px; padding-right: 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,.28), transparent); backdrop-filter: blur(10px); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .2px; font-size: 17px; }
+  .logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 18px;
     background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 8px 30px rgba(108,140,255,.45); }
-  nav { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 14px; }
+  nav { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
   nav a { color: var(--muted); }
   nav a.active { color: var(--text); }
-  .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
-    padding: 8px 12px; border-radius: 999px; border: 1px solid var(--stroke); background: var(--card); }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600;
+    padding: 7px 11px; border-radius: 999px; border: 1px solid var(--stroke); background: var(--card); }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .dot.on { background: var(--good); animation: pulse 1.8s infinite; }
   @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(52,227,155,.5)} 70%{box-shadow:0 0 0 10px rgba(52,227,155,0)} 100%{box-shadow:0 0 0 0 rgba(52,227,155,0)} }
 
-  .hero { margin: 46px 0 26px; }
-  .hero h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.02; margin: 0 0 12px; font-weight: 800; letter-spacing: -1.6px;
+  .hero { margin: 8px 0 18px; }
+  .hero h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.05; margin: 0 0 8px; font-weight: 800; letter-spacing: -1px;
     background: linear-gradient(100deg, var(--hero-a) 8%, var(--hero-b) 45%, var(--hero-c) 90%);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .hero p { color: var(--muted); font-size: clamp(15px, 2vw, 18px); max-width: 660px; line-height: 1.6; margin: 0; }
+  .hero p { color: var(--muted); font-size: 15px; max-width: 560px; line-height: 1.6; margin: 0; }
 
-  .panel { background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; padding: 20px; margin: 16px 0; backdrop-filter: blur(8px); }
+  .panel { background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; padding: 18px; margin: 14px 0; backdrop-filter: blur(8px); }
   .panel h2 { margin: 0 0 6px; font-size: 17px; }
   .hint { color: var(--muted); font-size: 13px; margin: 0; }
 
@@ -79,24 +82,26 @@
   input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,140,255,.18); }
   textarea { resize: vertical; min-height: 54px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .composer { display: grid; grid-template-columns: 190px 1fr auto; gap: 12px; align-items: start; }
-  @media (max-width: 720px) { .composer { grid-template-columns: 1fr; } }
   .locked { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
+  /* Feed */
   .feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 8px; }
+  @media (max-width: 560px) { .feed { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--stroke); border-radius: 16px; overflow: hidden;
     display: flex; flex-direction: column; animation: pop .3s ease both; }
   @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.985); } }
   .banner { position: relative; height: 150px; display: grid; place-items: center; font-size: 52px;
-    background: linear-gradient(135deg, rgba(108,140,255,.35), rgba(34,211,238,.25)); overflow: hidden; }
+    background: linear-gradient(135deg, rgba(var(--glow-a),.35), rgba(var(--glow-b),.25)); overflow: hidden; }
   .banner img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
   .badge { position: absolute; top: 10px; left: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
     background: rgba(0,0,0,.55); border: 1px solid var(--stroke); padding: 4px 8px; border-radius: 999px; }
-  .cardbody { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
-  .card h3 { margin: 0; font-size: 19px; letter-spacing: -.3px; }
+  .cardbody { padding: 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .card h3 { margin: 0; font-size: 18px; letter-spacing: -.3px; }
   .meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
-  .avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800;
-    color: #071022; background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800;
+    color: #071022; background: linear-gradient(135deg, var(--accent), var(--accent2)); flex: none; }
+  .who { color: var(--text); font-weight: 700; }
+  .meta .when { margin-left: auto; }
   .summary { font-size: 14.5px; line-height: 1.55; }
   .section-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 6px; }
   ul.facts { margin: 0; padding-left: 4px; list-style: none; display: grid; gap: 6px; }
@@ -105,18 +110,18 @@
   blockquote.quote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent2);
     background: rgba(34,211,238,.07); border-radius: 0 10px 10px 0; font-style: italic; font-size: 14px; line-height: 1.5; }
   .note-text { font-size: 15px; line-height: 1.55; }
-  .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--stroke); }
+  .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--stroke); }
   .actions .spacer { flex: 1; }
   .srclink { font-size: 13.5px; word-break: break-word; }
   ul.refs { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
   ul.refs li { font-size: 13px; line-height: 1.4; }
   ul.refs a { word-break: break-word; }
-  .gallery { display: flex; gap: 6px; padding: 10px 16px 0; }
+  .gallery { display: flex; gap: 6px; padding: 10px 14px 0; }
   .gallery img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--stroke); }
   .votes { display: flex; align-items: center; gap: 6px; }
-  .vbtn { border: 1px solid var(--stroke); background: rgba(255,255,255,.05); color: var(--text);
-    border-radius: 9px; padding: 5px 9px; cursor: pointer; font: inherit; font-size: 13px; }
-  .vbtn:hover { background: rgba(255,255,255,.12); }
+  .vbtn { border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
+    border-radius: 999px; padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+  .vbtn:hover { background: var(--btn-hover); }
   .vbtn:disabled { opacity: .6; }
   .vbtn.up.on { border-color: var(--good); color: var(--good); }
   .vbtn.down.on { border-color: var(--bad); color: #ff9b9b; }
@@ -125,7 +130,6 @@
   .notebox { display: flex; gap: 8px; margin-top: 4px; }
   .notebox input { padding: 9px 11px; }
 
-  /* Header row with the collapse toggle, tags, filter bar, sort/search controls */
   .body-head { display: flex; align-items: flex-start; gap: 8px; }
   .body-head h3 { flex: 1; }
   .chev { flex: none; border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
@@ -141,8 +145,7 @@
   .tagchip.on { border-color: var(--accent); color: var(--text); }
   .mini-input, .mini-select { font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg);
     border: 1px solid var(--stroke); border-radius: 9px; padding: 7px 10px; width: auto; }
-  .mini-input { min-width: 150px; }
-  .taginput { margin-top: 10px; }
+  .mini-input { min-width: 140px; }
 
   .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 8px 0; }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: var(--accent2); animation: spin .8s linear infinite; }
@@ -150,34 +153,61 @@
   .err { color: #ff9b9b; font-size: 13.5px; }
   .empty { color: var(--muted); text-align: center; padding: 46px 12px; border: 1px dashed var(--stroke); border-radius: 16px; grid-column: 1 / -1; }
 
+  /* Floating action buttons (bottom-right), stacked above the theme button */
+  .fabdock { position: fixed; right: 18px; bottom: 78px; display: none; flex-direction: column; gap: 12px; z-index: 60; }
+  .fabdock.show { display: flex; }
+  .fab { width: 48px; height: 48px; border-radius: 14px; cursor: pointer; font-size: 21px; line-height: 1;
+    border: 1px solid var(--stroke); background: var(--card); color: var(--text); backdrop-filter: blur(8px);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35); display: grid; place-items: center; }
+  .fab:hover { background: var(--btn-hover); }
+  .fab.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #071022; }
+  .fab .pip { position: absolute; }
+
+  /* Compose bottom sheet */
+  .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 70; display: none; align-items: flex-end; justify-content: center; }
+  .sheet-backdrop.open { display: flex; }
+  .sheet { width: min(560px, 100%); background: var(--bg2); border: 1px solid var(--stroke);
+    border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    max-height: 92vh; overflow: auto; box-shadow: 0 -20px 60px rgba(0,0,0,.5); }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; }
+  .sheet-head h2 { margin: 0; font-size: 18px; }
+  .x { border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text); border-radius: 10px;
+    cursor: pointer; padding: 5px 11px; font: inherit; }
+
+  /* Notification popover (like the theme panel) */
+  .pop { position: fixed; right: 18px; bottom: 78px; z-index: 61; width: min(320px, calc(100vw - 36px));
+    background: var(--card); border: 1px solid var(--stroke); border-radius: 16px; padding: 16px;
+    backdrop-filter: blur(12px); box-shadow: 0 24px 60px rgba(0,0,0,.45); display: none; }
+  .pop.open { display: block; }
+  .pop h3 { margin: 0 0 8px; font-size: 15px; }
+
   .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
     background: var(--toast-bg); border: 1px solid var(--stroke); color: var(--text); padding: 12px 18px; border-radius: 12px;
-    box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 50; }
+    box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 80; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  footer { color: var(--muted); font-size: 13px; margin-top: 34px; text-align: center; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 30px; text-align: center; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <header class="appbar">
     <div class="brand"><div class="logo">🧱</div><div>The Wall</div></div>
     <nav>
-      <a href="/" class="active">Wall</a>
       <a href="/dashboard">Dashboard</a>
       <span class="pill"><span class="dot" id="liveDot"></span><span id="liveText">connecting…</span></span>
+      <button class="btn ghost sm" id="btnLogout" style="display:none">Log out</button>
     </nav>
   </header>
 
   <section class="hero">
     <h1>The Wall</h1>
-    <p>This wall is private. Enter the shared password to see what's been posted and add your own.
-      Drop a link or a note and AI turns it into a card with a summary, fun facts and quirky quotes.</p>
+    <p>Our private family wall. Post a link or a note and AI turns it into a card.</p>
   </section>
 
-  <!-- Login gate: the wall's data stays hidden until this passes. -->
+  <!-- Login gate: everything stays hidden until this passes. -->
   <div class="panel" id="lockedPanel">
     <h2>🔒 This wall is private</h2>
-    <p class="hint">Enter the shared password to view the wall and post. Only people with the password can see anything here.</p>
+    <p class="hint">Enter the shared password to see the wall and post. Only the two of us can see anything here.</p>
     <div class="locked" style="margin-top:12px">
       <input id="password" type="password" placeholder="Shared password" style="max-width:260px" />
       <button class="btn primary" id="btnLogin">Unlock</button>
@@ -185,35 +215,9 @@
     </div>
   </div>
 
-  <div class="panel" id="composerPanel" style="display:none">
-    <div class="row" style="justify-content:space-between">
-      <h2 style="margin:0">Post to the wall</h2>
-      <button class="btn ghost sm" id="btnLogout">Log out</button>
-    </div>
-    <p class="hint" style="margin:6px 0 12px">Paste a link or write anything. Add your name so people know who posted it.</p>
-    <div class="composer">
-      <input id="author" maxlength="40" placeholder="Your name (optional)" />
-      <textarea id="postBody" maxlength="1000" placeholder="https://… or a thought — ⌘/Ctrl + Enter to post"></textarea>
-      <button class="btn primary" id="btnPost">Post</button>
-    </div>
-    <input id="tags" class="taginput" maxlength="160" placeholder="Tags, comma separated (optional) — e.g. ai, space, news" />
-  </div>
-
-  <!-- Notifications (Web Push). On iPhone this only works once the site is
-       added to the Home Screen (iOS 16.4+); the hint below explains that. -->
-  <div class="panel" id="pushPanel">
-    <div class="row" style="justify-content:space-between">
-      <div>
-        <h2 style="margin:0">🔔 New-post notifications</h2>
-        <p class="hint" id="pushHint">Get a push on this device whenever someone posts to the wall.</p>
-      </div>
-      <button class="btn primary sm" id="btnPush" disabled>Enable</button>
-    </div>
-  </div>
-
   <div class="panel" id="latestPanel" style="display:none">
     <div class="row" style="justify-content:space-between">
-      <h2 style="margin:0">Posts <span class="hint" id="count"></span></h2>
+      <h2 style="margin:0">Feed <span class="hint" id="count"></span></h2>
       <div class="row" style="gap:8px">
         <input id="search" class="mini-input" placeholder="Search text or #tag" />
         <select id="sortSel" class="mini-select" title="Sort">
@@ -236,6 +240,36 @@
     <a href="/api/session" target="_blank">/api/session</a>
   </footer>
 </div>
+
+<!-- Floating buttons: new post + notifications (theme button is added below by theme.js) -->
+<div class="fabdock" id="fabdock">
+  <button class="fab primary" id="fabNew" title="New post" aria-label="New post">✍️</button>
+  <button class="fab" id="fabBell" title="Notifications" aria-label="Notifications">🔔</button>
+</div>
+
+<!-- Notification popover -->
+<div class="pop" id="pushPop">
+  <h3>🔔 New-post notifications</h3>
+  <p class="hint" id="pushHint">Get a push on this device whenever someone posts to the wall.</p>
+  <button class="btn primary sm" id="btnPush" style="width:100%; margin-top:10px" disabled>Enable</button>
+</div>
+
+<!-- Compose bottom sheet -->
+<div class="sheet-backdrop" id="compose">
+  <div class="sheet" role="dialog" aria-label="New post">
+    <div class="sheet-head">
+      <h2>✍️ New post</h2>
+      <button class="x" id="composeClose" title="Close" aria-label="Close">✕</button>
+    </div>
+    <input id="author" maxlength="40" placeholder="Your name (optional)" />
+    <textarea id="postBody" maxlength="1000" placeholder="Paste a link, or write what's on your mind…"></textarea>
+    <div class="row" style="justify-content:space-between">
+      <span class="hint">Tags are generated automatically by AI.</span>
+      <button class="btn primary" id="btnPost">Post</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -279,9 +313,11 @@ async function api(url, opts) {
 // ---- Composer / auth ----
 function setAuthed(v) {
   authed = v;
-  $("composerPanel").style.display = v ? "" : "none";
   $("lockedPanel").style.display = v ? "none" : "";
   $("latestPanel").style.display = v ? "" : "none";
+  $("fabdock").classList.toggle("show", v);
+  $("btnLogout").style.display = v ? "" : "none";
+  if (!v) closeCompose();
 }
 
 async function checkSession() {
@@ -307,6 +343,17 @@ $("btnLogout").onclick = async () => {
   setAuthed(false); toast("Logged out"); render([]);
 };
 
+// ---- Compose sheet ----
+function openCompose() {
+  try { $("author").value = localStorage.getItem("wall_name") || $("author").value; } catch {}
+  $("compose").classList.add("open");
+  setTimeout(() => $("postBody").focus(), 50);
+}
+function closeCompose() { $("compose").classList.remove("open"); }
+$("fabNew").onclick = openCompose;
+$("composeClose").onclick = closeCompose;
+$("compose").addEventListener("click", (e) => { if (e.target === $("compose")) closeCompose(); });
+
 $("btnPost").onclick = async () => {
   const body = $("postBody").value.trim();
   if (!body) return toast("Write something first");
@@ -314,10 +361,11 @@ $("btnPost").onclick = async () => {
   try {
     const d = await api("/api/posts", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, author: $("author").value, tags: $("tags").value })
+      body: JSON.stringify({ body, author: $("author").value })
     });
+    try { if ($("author").value.trim()) localStorage.setItem("wall_name", $("author").value.trim()); } catch {}
     $("postBody").value = "";
-    $("tags").value = "";
+    closeCompose();
     toast("Posted — AI is investigating…");
     feedCache.unshift(d.post);
     render(feedCache);
@@ -374,19 +422,19 @@ function makeCard(p) {
 
   const body = el("div", "cardbody");
 
-  // Header: title + collapse toggle.
-  const head = el("div", "body-head");
-  head.append(el("h3", null, card_.title || (p.kind === "link" ? "Investigating link…" : "A note")));
-  const chev = el("button", "chev");
-  chev.type = "button";
-  head.append(chev);
-  body.append(head);
-
-  // Meta
+  // Author row (social style) + collapse toggle.
   const meta = el("div", "meta");
   const av = el("div", "avatar", initials(p.author)); av.textContent = initials(p.author);
-  meta.append(av, el("span", null, p.author || "Anonymous"), el("span", null, "·"), el("span", null, relTime(p.created_at)));
+  meta.append(av, el("span", "who", p.author || "Anonymous"), el("span", "when", relTime(p.created_at)));
+  const chev = el("button", "chev");
+  chev.type = "button";
+  meta.append(chev);
   body.append(meta);
+
+  // Title
+  const head = el("div", "body-head");
+  head.append(el("h3", null, card_.title || (p.kind === "link" ? "Investigating link…" : "A note")));
+  body.append(head);
 
   // Tags (click to filter by that tag).
   const pTags = Array.isArray(p.tags) ? p.tags : [];
@@ -482,7 +530,7 @@ function makeCard(p) {
   // Collapse toggle (state kept per post id across re-renders).
   const setCollapsed = (v) => {
     card.classList.toggle("collapsed", v);
-    chev.textContent = v ? "▸" : "▾";
+    chev.textContent = v ? "▾" : "▴";
     chev.title = v ? "Expand" : "Collapse";
     chev.setAttribute("aria-label", chev.title);
     if (v) collapsed.add(p.id); else collapsed.delete(p.id);
@@ -589,7 +637,7 @@ function applyView() {
     : "";
   feed.textContent = "";
   if (!list.length) {
-    feed.append(el("div", "empty", filtering ? "No posts match this filter." : "No posts yet. Unlock posting and be the first."));
+    feed.append(el("div", "empty", filtering ? "Nothing matches this filter." : "No posts yet. Tap ✍️ to add the first one."));
     return;
   }
   for (const p of list) feed.append(makeCard(p));
@@ -619,7 +667,7 @@ async function refresh() {
   }
 }
 
-// ---- Web Push / PWA install ----
+// ---- Web Push / PWA install (notification popover behind the 🔔 button) ----
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const standalone = window.matchMedia("(display-mode: standalone)").matches ||
@@ -641,8 +689,8 @@ function setPushUI(state, msg) {
   const btn = $("btnPush");
   const hint = $("pushHint");
   if (state === "on") {
-    btn.textContent = "Disable"; btn.className = "btn ghost sm"; btn.disabled = false;
-    hint.textContent = "Notifications are on for this device. You'll get a push on every new post.";
+    btn.textContent = "Disable"; btn.className = "btn ghost sm"; btn.style.width = "100%"; btn.style.marginTop = "10px"; btn.disabled = false;
+    hint.textContent = "Notifications are on for this device — you'll get a push on every new post.";
   } else if (state === "unsupported") {
     btn.disabled = true; hint.textContent = msg || "This browser can't show web notifications.";
   } else if (state === "needs-install") {
@@ -651,7 +699,7 @@ function setPushUI(state, msg) {
   } else if (state === "unconfigured") {
     btn.disabled = true; hint.textContent = "Notifications aren't configured on the server yet.";
   } else { // off
-    btn.disabled = false; btn.className = "btn primary sm"; btn.textContent = "Enable";
+    btn.disabled = false; btn.className = "btn primary sm"; btn.style.width = "100%"; btn.style.marginTop = "10px"; btn.textContent = "Enable";
     hint.textContent = msg || "Get a push on this device whenever someone posts to the wall.";
   }
 }
@@ -712,6 +760,21 @@ $("btnPush").onclick = async () => {
   const sub = await activeSubscription();
   if (sub) disablePush(); else enablePush();
 };
+
+$("fabBell").onclick = (e) => {
+  e.stopPropagation();
+  $("pushPop").classList.toggle("open");
+};
+document.addEventListener("click", (e) => {
+  const pop = $("pushPop");
+  if (!pop.classList.contains("open")) return;
+  if (pop.contains(e.target) || $("fabBell").contains(e.target)) return;
+  pop.classList.remove("open");
+});
+// Compose sheet should also close on Escape.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeCompose(); $("pushPop").classList.remove("open"); }
+});
 
 async function initPush() {
   if (!pushSupported) return setPushUI("unsupported");

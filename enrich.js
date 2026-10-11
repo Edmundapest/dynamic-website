@@ -7,6 +7,24 @@
 const db = require("./db");
 const ai = require("./ai");
 
+// Normalize AI-produced tags (lowercase, keep [a-z0-9_-], dedupe, cap) so they
+// match the format the API uses for poster tags.
+function normalizeTags(input) {
+  const arr = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const out = [];
+  for (let t of arr) {
+    t = String(t).trim().toLowerCase().replace(/^#/, "").replace(/[^a-z0-9_-]/g, "");
+    if (!t) continue;
+    if (t.length > 24) t = t.slice(0, 24);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 // Turns reader thumbs into an extra system message so the model drifts toward
 // what people liked and away from what they didn't.
 async function buildFeedbackGuidance() {
@@ -200,11 +218,19 @@ async function enrichPost(id) {
       }
     }
 
+    // Merge the AI-generated tags into the post's tags (union with any the
+    // poster supplied when writing).
+    const aiTags = normalizeTags(card.tags);
+    card.tags = aiTags;
     await db.query(
       `UPDATE posts
-         SET card = $1, status = 'ready', error = NULL, updated_at = now()
+         SET card = $1, status = 'ready', error = NULL, updated_at = now(),
+             tags = COALESCE(
+               (SELECT array_agg(DISTINCT t) FROM unnest(tags || $3::text[]) AS t),
+               '{}'
+             )
        WHERE id = $2`,
-      [card, id]
+      [card, id, aiTags]
     );
   } catch (err) {
     await db

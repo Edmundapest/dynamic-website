@@ -62,6 +62,11 @@ demo dashboard now lives at `/dashboard`.
 
 ### Feed: votes, tags, sort & collapse
 
+- **Tags are AI-generated.** When a post is enriched, the model also returns
+  `tags` (3-6 short lowercase tags); `enrich.js` normalizes them and merges them
+  into `posts.tags`. You don't type tags — they appear automatically a moment
+  after posting. Tags show as chips on each card and in a tag bar above the feed.
+  `GET /api/posts` returns `tags: string[]`.
 - **Votes count once per person.** Each browser keeps a random `voter` id in
   `localStorage` (`wall_voter`) and sends it on every vote. The server stores one
   row per `(post_id, voter_id)` in `post_votes` and recomputes `votes_up` /
@@ -69,18 +74,32 @@ demo dashboard now lives at `/dashboard`.
   the same button again clears your vote (`value: 0`); clicking the other one
   switches it. `GET /api/posts` returns your own `my_vote` per post (via the
   `x-voter-id` header) so the UI can show your state.
-- **Tags.** Add comma-separated tags when posting; they're normalized
-  (lowercased, `[a-z0-9_-]`, max 8). Tags appear as chips on each card and in a
-  tag bar above the feed. `GET /api/posts` returns `tags: string[]`.
 - **Search & filter.** The search box filters the feed by free text (body, author,
   card title/summary) and by `#tag`; clicking a tag chip filters to it.
 - **Sort.** The dropdown sorts the cached feed: Newest, Oldest, Most upvoted,
   Most downvoted, or Top score (up − down).
-- **Collapse.** Each card has an arrow that collapses its body (title + tags +
-  vote bar stay visible). Collapse state is remembered per post while you browse.
+- **Collapse.** Each card has an arrow that collapses its body (author row + tags
+  + vote bar stay visible). Collapse state is remembered per post while you browse.
 
 Filtering and sorting happen in the browser over the up-to-100 posts the feed
 returns; nothing extra is stored server-side for them.
+
+### Wall UI (social-style)
+
+The wall is laid out like a small social feed: a sticky top bar, an author row
+(avatar + name + relative time) on each card, hashtag chips, and a feed of cards.
+
+Two **floating buttons** (bottom-right, stacked above the theme 🎨 button) drive
+the main actions:
+
+- **✍️ New post** opens a bottom-sheet composer (name + text). Tags are added by
+  AI, so there's nothing else to fill in. Your name is remembered per browser
+  (`wall_name`) and pre-filled next time.
+- **🔔 Notifications** opens a popover to enable/disable Web Push for this device.
+
+Everything else (the feed, search, sort and the theme picker) sits behind the
+password like the rest of the site. It's built for a two-person private wall —
+one shared password, per-browser identity and votes — rather than public sign-ups.
 
 ## Themes
 
