@@ -73,6 +73,23 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
   // Generated card images are stored out-of-band so the feed stays small.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
+  // Freeform, poster-supplied tags (lowercased) used for filtering.
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`);
+
+  // One row per (post, voter): makes thumbs-up/down count each person once
+  // instead of letting a single visitor spam the counter.
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS post_votes (
+      post_id    INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      voter_id   TEXT NOT NULL,
+      value      SMALLINT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (post_id, voter_id)
+    )
+  `);
+  await getPool().query(
+    `CREATE INDEX IF NOT EXISTS post_votes_post_idx ON post_votes (post_id)`
+  );
 
   // Web Push subscriptions (one row per browser/device that enabled alerts).
   // `endpoint` is the unique push-service URL; keys authenticate the payload

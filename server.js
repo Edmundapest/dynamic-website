@@ -240,12 +240,48 @@ function detectUrl(text) {
   }
 }
 
-app.get("/api/posts", auth.requireAuth, async (_req, res) => {
+// Normalize poster tags: lowercase, strip "#", keep [a-z0-9_-], dedupe, cap.
+function parseTags(input) {
+  const arr = Array.isArray(input) ? input : String(input || "").split(/[,\s]+/);
+  const seen = new Set();
+  const out = [];
+  for (let t of arr) {
+    t = String(t).trim().toLowerCase().replace(/^#/, "").replace(/[^a-z0-9_-]/g, "");
+    if (!t) continue;
+    if (t.length > 24) t = t.slice(0, 24);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+// A per-browser id (from localStorage) that lets us count one vote per person.
+function cleanVoter(v) {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (s.length < 6 || s.length > 64) return null;
+  return /^[A-Za-z0-9_-]+$/.test(s) ? s : null;
+}
+
+app.get("/api/posts", auth.requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, created_at, updated_at
+      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, tags, created_at, updated_at
          FROM posts ORDER BY created_at DESC LIMIT 100`
     );
+    const voter = cleanVoter(req.get("x-voter-id"));
+    const mine = new Map();
+    if (voter && rows.length) {
+      const ids = rows.map((r) => r.id);
+      const { rows: votes } = await db.query(
+        `SELECT post_id, value FROM post_votes WHERE voter_id = $1 AND post_id = ANY($2)`,
+        [voter, ids]
+      );
+      for (const v of votes) mine.set(v.post_id, v.value);
+    }
+    for (const r of rows) r.my_vote = mine.get(r.id) || 0;
     res.json({ ok: true, posts: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -278,12 +314,13 @@ app.post("/api/posts", writeLimiter, auth.requireAuth, async (req, res) => {
 
   const url = detectUrl(body);
   const kind = url ? "link" : "text";
+  const tags = parseTags(req.body && req.body.tags);
   try {
     const { rows } = await db.query(
-      `INSERT INTO posts (author, body, kind, url, status)
-       VALUES ($1, $2, $3, $4, 'pending')
-       RETURNING id, author, body, kind, url, status, created_at`,
-      [author || null, body, kind, url]
+      `INSERT INTO posts (author, body, kind, url, status, tags)
+       VALUES ($1, $2, $3, $4, 'pending', $5)
+       RETURNING id, author, body, kind, url, status, tags, created_at`,
+      [author || null, body, kind, url, tags]
     );
     enrich.enqueue(rows[0].id); // fire-and-forget; response returns immediately
     // Notify every subscribed device. Fire-and-forget so a slow push service
@@ -324,22 +361,42 @@ app.delete("/api/posts/:id", writeLimiter, auth.requireAuth, async (req, res) =>
   }
 });
 
-// Public thumbs feedback — anyone viewing can rate; the votes steer future cards.
+// Thumbs up/down, one vote per person per post (keyed by the client's voter id).
+// value = 1, -1, or 0 to clear. Counts are recomputed from post_votes so a
+// single visitor can't inflate the numbers by clicking repeatedly.
 app.post("/api/posts/:id/vote", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
-  const value = Number(req.body && req.body.value);
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
-  if (value !== 1 && value !== -1) {
-    return res.status(400).json({ ok: false, error: "value must be 1 or -1" });
+  const value = Number(req.body && req.body.value);
+  if (value !== 1 && value !== -1 && value !== 0) {
+    return res.status(400).json({ ok: false, error: "value must be 1, -1 or 0" });
   }
+  const voter = cleanVoter(req.body && req.body.voter);
+  if (!voter) return res.status(400).json({ ok: false, error: "missing voter id" });
   try {
-    const col = value === 1 ? "votes_up" : "votes_down"; // safe: fixed set
+    const { rowCount } = await db.query("SELECT 1 FROM posts WHERE id = $1", [id]);
+    if (!rowCount) return res.status(404).json({ ok: false, error: "post not found" });
+
+    if (value === 0) {
+      await db.query("DELETE FROM post_votes WHERE post_id = $1 AND voter_id = $2", [id, voter]);
+    } else {
+      await db.query(
+        `INSERT INTO post_votes (post_id, voter_id, value) VALUES ($1, $2, $3)
+         ON CONFLICT (post_id, voter_id)
+           DO UPDATE SET value = EXCLUDED.value, created_at = now()`,
+        [id, voter, value]
+      );
+    }
     const { rows } = await db.query(
-      `UPDATE posts SET ${col} = ${col} + 1 WHERE id = $1 RETURNING votes_up, votes_down`,
+      `UPDATE posts
+          SET votes_up = (SELECT count(*) FROM post_votes WHERE post_id = $1 AND value = 1),
+              votes_down = (SELECT count(*) FROM post_votes WHERE post_id = $1 AND value = -1),
+              updated_at = now()
+        WHERE id = $1
+        RETURNING votes_up, votes_down`,
       [id]
     );
-    if (!rows.length) return res.status(404).json({ ok: false, error: "post not found" });
-    res.json({ ok: true, votes_up: rows[0].votes_up, votes_down: rows[0].votes_down });
+    res.json({ ok: true, votes_up: rows[0].votes_up, votes_down: rows[0].votes_down, my_vote: value });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

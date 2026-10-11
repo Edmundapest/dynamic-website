@@ -125,6 +125,25 @@
   .notebox { display: flex; gap: 8px; margin-top: 4px; }
   .notebox input { padding: 9px 11px; }
 
+  /* Header row with the collapse toggle, tags, filter bar, sort/search controls */
+  .body-head { display: flex; align-items: flex-start; gap: 8px; }
+  .body-head h3 { flex: 1; }
+  .chev { flex: none; border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
+    border-radius: 8px; cursor: pointer; padding: 3px 11px; font: inherit; line-height: 1.4; }
+  .chev:hover { background: var(--btn-hover); }
+  .collapsible { display: flex; flex-direction: column; gap: 12px; }
+  .card.collapsed .collapsible { display: none; }
+  .tagrow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tagbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+  .tagchip { border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--muted); font: inherit;
+    font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+  .tagchip:hover { background: var(--btn-hover); color: var(--text); }
+  .tagchip.on { border-color: var(--accent); color: var(--text); }
+  .mini-input, .mini-select { font: inherit; font-size: 13px; color: var(--text); background: var(--input-bg);
+    border: 1px solid var(--stroke); border-radius: 9px; padding: 7px 10px; width: auto; }
+  .mini-input { min-width: 150px; }
+  .taginput { margin-top: 10px; }
+
   .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 8px 0; }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: var(--accent2); animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -177,6 +196,7 @@
       <textarea id="postBody" maxlength="1000" placeholder="https://… or a thought — ⌘/Ctrl + Enter to post"></textarea>
       <button class="btn primary" id="btnPost">Post</button>
     </div>
+    <input id="tags" class="taginput" maxlength="160" placeholder="Tags, comma separated (optional) — e.g. ai, space, news" />
   </div>
 
   <!-- Notifications (Web Push). On iPhone this only works once the site is
@@ -193,9 +213,20 @@
 
   <div class="panel" id="latestPanel" style="display:none">
     <div class="row" style="justify-content:space-between">
-      <h2 style="margin:0">Latest <span class="hint" id="count"></span></h2>
-      <button class="btn ghost sm" id="btnRefresh">Refresh</button>
+      <h2 style="margin:0">Posts <span class="hint" id="count"></span></h2>
+      <div class="row" style="gap:8px">
+        <input id="search" class="mini-input" placeholder="Search text or #tag" />
+        <select id="sortSel" class="mini-select" title="Sort">
+          <option value="new">Newest</option>
+          <option value="old">Oldest</option>
+          <option value="up">Most upvoted</option>
+          <option value="down">Most downvoted</option>
+          <option value="top">Top score</option>
+        </select>
+        <button class="btn ghost sm" id="btnRefresh">Refresh</button>
+      </div>
     </div>
+    <div class="tagbar" id="tagbar"></div>
     <div class="feed" id="feed"></div>
   </div>
 
@@ -211,6 +242,19 @@
 const $ = (id) => document.getElementById(id);
 let authed = false;
 let polling = null;
+
+// A stable per-browser id so a vote counts once per person (not per click).
+const VOTER = (() => {
+  let v = null;
+  try { v = localStorage.getItem("wall_voter"); } catch {}
+  if (!v) {
+    v = "v" + (self.crypto && crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, "")
+      : Date.now().toString(36) + Math.random().toString(36).slice(2));
+    try { localStorage.setItem("wall_voter", v); } catch {}
+  }
+  return v;
+})();
 
 function toast(msg) {
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
@@ -260,7 +304,7 @@ $("btnLogin").onclick = async () => {
 $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
 $("btnLogout").onclick = async () => {
   try { await api("/api/logout", { method: "POST" }); } catch {}
-  setAuthed(false); toast("Logged out"); feedCache = [];
+  setAuthed(false); toast("Logged out"); render([]);
 };
 
 $("btnPost").onclick = async () => {
@@ -270,9 +314,10 @@ $("btnPost").onclick = async () => {
   try {
     const d = await api("/api/posts", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, author: $("author").value })
+      body: JSON.stringify({ body, author: $("author").value, tags: $("tags").value })
     });
     $("postBody").value = "";
+    $("tags").value = "";
     toast("Posted — AI is investigating…");
     feedCache.unshift(d.post);
     render(feedCache);
@@ -282,6 +327,8 @@ $("btnPost").onclick = async () => {
 };
 $("postBody").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") $("btnPost").click(); });
 $("btnRefresh").onclick = () => { refresh(); toast("Refreshed"); };
+$("sortSel").addEventListener("change", () => { sortMode = $("sortSel").value; applyView(); });
+$("search").addEventListener("input", () => { query = $("search").value; applyView(); });
 
 // ---- Card rendering (all text via textContent — no HTML injection) ----
 function el(tag, cls, text) {
@@ -327,20 +374,45 @@ function makeCard(p) {
 
   const body = el("div", "cardbody");
 
-  // Title + meta
-  body.append(el("h3", null, card_.title || (p.kind === "link" ? "Investigating link…" : "A note")));
+  // Header: title + collapse toggle.
+  const head = el("div", "body-head");
+  head.append(el("h3", null, card_.title || (p.kind === "link" ? "Investigating link…" : "A note")));
+  const chev = el("button", "chev");
+  chev.type = "button";
+  head.append(chev);
+  body.append(head);
+
+  // Meta
   const meta = el("div", "meta");
   const av = el("div", "avatar", initials(p.author)); av.textContent = initials(p.author);
   meta.append(av, el("span", null, p.author || "Anonymous"), el("span", null, "·"), el("span", null, relTime(p.created_at)));
   body.append(meta);
 
-  // Status-specific body
+  // Tags (click to filter by that tag).
+  const pTags = Array.isArray(p.tags) ? p.tags : [];
+  if (pTags.length) {
+    const row = el("div", "tagrow");
+    for (const t of pTags) {
+      const chip = el("button", "tagchip", "#" + t);
+      chip.type = "button";
+      chip.onclick = () => {
+        activeTag = t; query = ""; $("search").value = "";
+        renderTagBar(); applyView();
+      };
+      row.append(chip);
+    }
+    body.append(row);
+  }
+
+  // Collapsible details.
+  const content = el("div", "collapsible");
+
   if (p.status === "pending") {
     const s = el("div", "status"); s.append(el("div", "spinner"), el("span", null, "AI is investigating this post…"));
-    body.append(s);
+    content.append(s);
   } else if (p.status === "error") {
-    body.append(el("div", "err", "Couldn't generate a card: " + (p.error || "unknown error")));
-    body.append(el("div", "note-text", p.body));
+    content.append(el("div", "err", "Couldn't generate a card: " + (p.error || "unknown error")));
+    content.append(el("div", "note-text", p.body));
   } else {
     if (card_.source_url) {
       const wrap = el("div");
@@ -348,19 +420,19 @@ function makeCard(p) {
       const a = el("a", "srclink", card_.source_title || card_.source_url);
       a.href = card_.source_url; a.target = "_blank"; a.rel = "noopener noreferrer";
       wrap.append(a);
-      body.append(wrap);
+      content.append(wrap);
     }
-    if (card_.summary) body.append(el("div", "summary", card_.summary));
+    if (card_.summary) content.append(el("div", "summary", card_.summary));
     if (Array.isArray(card_.fun_facts) && card_.fun_facts.length) {
       const wrap = el("div"); wrap.append(el("div", "section-label", "Fun facts"));
       const ul = el("ul", "facts");
       for (const f of card_.fun_facts) ul.append(el("li", null, f));
-      wrap.append(ul); body.append(wrap);
+      wrap.append(ul); content.append(wrap);
     }
     if (Array.isArray(card_.quotes) && card_.quotes.length) {
       const wrap = el("div"); wrap.append(el("div", "section-label", "Quirky quotes"));
       for (const q of card_.quotes) wrap.append(el("blockquote", "quote", q));
-      body.append(wrap);
+      content.append(wrap);
     }
     if (Array.isArray(card_.references) && card_.references.length) {
       const wrap = el("div"); wrap.append(el("div", "section-label", "References"));
@@ -371,59 +443,17 @@ function makeCard(p) {
         a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer";
         li.append(a); ul.append(li);
       }
-      wrap.append(ul); body.append(wrap);
+      wrap.append(ul); content.append(wrap);
     }
   }
 
-  // Poster's note: visible to everyone; editable when logged in.
+  // Poster's note.
   if (p.user_note) {
     const n = el("div", "usernote");
     n.append(el("div", "section-label", "Poster's note"));
     n.append(el("div", "txt", p.user_note));
-    body.append(n);
+    content.append(n);
   }
-
-  // Footer: public thumbs (steer future AI), plus edit controls when logged in.
-  const actions = el("div", "actions");
-  const votes = el("div", "votes");
-  const up = el("button", "vbtn up", "👍 " + (p.votes_up || 0));
-  const down = el("button", "vbtn down", "👎 " + (p.votes_down || 0));
-  up.onclick = async () => {
-    up.disabled = true;
-    try {
-      const d = await api("/api/posts/" + p.id + "/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 1 }) });
-      up.textContent = "👍 " + d.votes_up; up.classList.add("on");
-      toast("Thanks — that steers future cards");
-    } catch (e) { toast("Failed: " + e.message); }
-    finally { up.disabled = false; }
-  };
-  down.onclick = async () => {
-    down.disabled = true;
-    try {
-      const d = await api("/api/posts/" + p.id + "/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: -1 }) });
-      down.textContent = "👎 " + d.votes_down; down.classList.add("on");
-      toast("Noted — AI will adjust");
-    } catch (e) { toast("Failed: " + e.message); }
-    finally { down.disabled = false; }
-  };
-  votes.append(up, down);
-  actions.append(votes, el("div", "spacer"));
-  if (authed) {
-    const regen = el("button", "btn ghost sm", "↻ Regenerate");
-    regen.onclick = async () => {
-      regen.disabled = true;
-      try { await api("/api/posts/" + p.id + "/regenerate", { method: "POST" }); toast("Regenerating…"); refresh(); }
-      catch (e) { toast("Failed: " + e.message); regen.disabled = false; }
-    };
-    const del = el("button", "btn danger sm", "Delete");
-    del.onclick = async () => {
-      if (!confirm("Delete this post?")) return;
-      try { await api("/api/posts/" + p.id, { method: "DELETE" }); toast("Deleted"); refresh(); }
-      catch (e) { toast("Failed: " + e.message); }
-    };
-    actions.append(regen, del);
-  }
-  body.append(actions);
 
   // Note editor (logged in only).
   if (authed) {
@@ -444,30 +474,136 @@ function makeCard(p) {
     };
     box.append(input, save);
     wrap.append(box);
-    body.append(wrap);
+    content.append(wrap);
   }
+
+  body.append(content);
+
+  // Collapse toggle (state kept per post id across re-renders).
+  const setCollapsed = (v) => {
+    card.classList.toggle("collapsed", v);
+    chev.textContent = v ? "▸" : "▾";
+    chev.title = v ? "Expand" : "Collapse";
+    chev.setAttribute("aria-label", chev.title);
+    if (v) collapsed.add(p.id); else collapsed.delete(p.id);
+  };
+  chev.onclick = () => setCollapsed(!collapsed.has(p.id));
+  setCollapsed(collapsed.has(p.id));
+
+  // Footer: thumbs (one vote per person) + edit controls when logged in.
+  const actions = el("div", "actions");
+  const votes = el("div", "votes");
+  const up = el("button", "vbtn up" + (p.my_vote === 1 ? " on" : ""), "👍 " + (p.votes_up || 0));
+  const down = el("button", "vbtn down" + (p.my_vote === -1 ? " on" : ""), "👎 " + (p.votes_down || 0));
+  up.type = "button"; down.type = "button";
+  const castVote = async (value) => {
+    const next = (p.my_vote || 0) === value ? 0 : value; // click again to undo
+    up.disabled = down.disabled = true;
+    try {
+      const d = await api("/api/posts/" + p.id + "/vote", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: next, voter: VOTER })
+      });
+      p.votes_up = d.votes_up; p.votes_down = d.votes_down; p.my_vote = d.my_vote;
+      up.textContent = "👍 " + d.votes_up; down.textContent = "👎 " + d.votes_down;
+      up.classList.toggle("on", d.my_vote === 1);
+      down.classList.toggle("on", d.my_vote === -1);
+      if (sortMode === "up" || sortMode === "down" || sortMode === "top") applyView();
+    } catch (e) { toast("Failed: " + e.message); }
+    finally { up.disabled = down.disabled = false; }
+  };
+  up.onclick = () => castVote(1);
+  down.onclick = () => castVote(-1);
+  votes.append(up, down);
+  actions.append(votes, el("div", "spacer"));
+  if (authed) {
+    const regen = el("button", "btn ghost sm", "↻ Regenerate");
+    regen.onclick = async () => {
+      regen.disabled = true;
+      try { await api("/api/posts/" + p.id + "/regenerate", { method: "POST" }); toast("Regenerating…"); refresh(); }
+      catch (e) { toast("Failed: " + e.message); regen.disabled = false; }
+    };
+    const del = el("button", "btn danger sm", "Delete");
+    del.onclick = async () => {
+      if (!confirm("Delete this post?")) return;
+      try { await api("/api/posts/" + p.id, { method: "DELETE" }); toast("Deleted"); refresh(); }
+      catch (e) { toast("Failed: " + e.message); }
+    };
+    actions.append(regen, del);
+  }
+  body.append(actions);
 
   card.append(body);
   return card;
 }
 
+// ---- Feed: sort + filter (client-side over the cached feed) ----
 let feedCache = [];
-function render(posts) {
-  feedCache = posts || [];
+let sortMode = "new";
+let activeTag = null;
+let query = "";
+const collapsed = new Set();
+
+function renderTagBar() {
+  const counts = new Map();
+  for (const p of feedCache) for (const t of (p.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
+  const bar = $("tagbar");
+  bar.textContent = "";
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  for (const [t, c] of entries) {
+    const chip = el("button", "tagchip" + (activeTag === t ? " on" : ""), "#" + t + " " + c);
+    chip.type = "button";
+    chip.onclick = () => { activeTag = activeTag === t ? null : t; renderTagBar(); applyView(); };
+    bar.append(chip);
+  }
+}
+
+function applyView() {
+  let list = feedCache.slice();
+  if (activeTag) list = list.filter((p) => (p.tags || []).includes(activeTag));
+  const q = query.trim().toLowerCase();
+  if (q) {
+    list = list.filter((p) => {
+      const c = p.card || {};
+      const hay = [p.body, p.author, c.title, c.summary, (p.tags || []).join(" ")]
+        .filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const score = (p) => (p.votes_up || 0) - (p.votes_down || 0);
+  const time = (p) => new Date(p.created_at).getTime();
+  const cmp = {
+    new: (a, b) => time(b) - time(a),
+    old: (a, b) => time(a) - time(b),
+    up: (a, b) => (b.votes_up || 0) - (a.votes_up || 0),
+    down: (a, b) => (b.votes_down || 0) - (a.votes_down || 0),
+    top: (a, b) => score(b) - score(a) || time(b) - time(a),
+  }[sortMode];
+  if (cmp) list.sort(cmp);
+
   const feed = $("feed");
-  $("count").textContent = feedCache.length ? "· " + feedCache.length + " post" + (feedCache.length === 1 ? "" : "s") : "";
+  const filtering = activeTag || query.trim();
+  const total = feedCache.length;
+  $("count").textContent = total
+    ? "· " + (filtering && list.length !== total ? list.length + " of " + total : total + " post" + (total === 1 ? "" : "s"))
+    : "";
   feed.textContent = "";
-  if (!feedCache.length) {
-    const e = el("div", "empty", "No posts yet. Unlock posting and be the first.");
-    feed.append(e);
+  if (!list.length) {
+    feed.append(el("div", "empty", filtering ? "No posts match this filter." : "No posts yet. Unlock posting and be the first."));
     return;
   }
-  for (const p of feedCache) feed.append(makeCard(p));
+  for (const p of list) feed.append(makeCard(p));
+}
+
+function render(posts) {
+  feedCache = posts || [];
+  renderTagBar();
+  applyView();
 }
 
 async function refresh() {
   try {
-    const d = await api("/api/posts");
+    const d = await api("/api/posts", { headers: { "x-voter-id": VOTER } });
     $("liveDot").classList.add("on"); $("liveText").textContent = "live";
     render(d.posts);
     // Poll faster while anything is still being enriched.

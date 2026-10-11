@@ -39,11 +39,11 @@ demo dashboard now lives at `/dashboard`.
 | `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. **Public.** |
 | `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
 | `GET /api/posts` | **Auth.** The private feed of posts (with their AI cards). |
-| `POST /api/posts` | **Auth.** Create a post `{ author, body }`; returns `pending`, enriches in the background. |
+| `POST /api/posts` | **Auth.** Create a post `{ author, body, tags }`; returns `pending`, enriches in the background. |
 | `POST /api/posts/:id/regenerate` | **Auth.** Re-run AI enrichment for a post. |
 | `DELETE /api/posts/:id` | **Auth.** Delete a post. |
 | `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | **Auth.** Dashboard stats/probes. |
-| `POST /api/posts/:id/vote` | **Auth.** Thumbs up/down (steers future cards). |
+| `POST /api/posts/:id/vote` | **Auth.** `{ value: 1\|-1\|0, voter }` — one vote per voter per post. |
 | `POST /api/posts/:id/note` | **Auth.** Poster-authored note for a card. |
 | `GET /api/push/public-key` · `GET /api/push/status` | **Public.** VAPID key + whether push is configured. |
 | `POST /api/push/subscribe` · `POST /api/push/unsubscribe` | **Auth.** Save/remove a device's push subscription. |
@@ -59,6 +59,28 @@ demo dashboard now lives at `/dashboard`.
    (SSRF-guarded), then asks DeepSeek for a JSON card.
 3. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
 4. The wall polls `GET /api/posts` and renders pending → ready cards live.
+
+### Feed: votes, tags, sort & collapse
+
+- **Votes count once per person.** Each browser keeps a random `voter` id in
+  `localStorage` (`wall_voter`) and sends it on every vote. The server stores one
+  row per `(post_id, voter_id)` in `post_votes` and recomputes `votes_up` /
+  `votes_down` from it — so clicking 👍 repeatedly does nothing extra. Clicking
+  the same button again clears your vote (`value: 0`); clicking the other one
+  switches it. `GET /api/posts` returns your own `my_vote` per post (via the
+  `x-voter-id` header) so the UI can show your state.
+- **Tags.** Add comma-separated tags when posting; they're normalized
+  (lowercased, `[a-z0-9_-]`, max 8). Tags appear as chips on each card and in a
+  tag bar above the feed. `GET /api/posts` returns `tags: string[]`.
+- **Search & filter.** The search box filters the feed by free text (body, author,
+  card title/summary) and by `#tag`; clicking a tag chip filters to it.
+- **Sort.** The dropdown sorts the cached feed: Newest, Oldest, Most upvoted,
+  Most downvoted, or Top score (up − down).
+- **Collapse.** Each card has an arrow that collapses its body (title + tags +
+  vote bar stay visible). Collapse state is remembered per post while you browse.
+
+Filtering and sorting happen in the browser over the up-to-100 posts the feed
+returns; nothing extra is stored server-side for them.
 
 ## Themes
 
