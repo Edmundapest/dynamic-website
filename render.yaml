@@ -24,6 +24,12 @@ services:
         sync: false # shared password required to post
       - key: SESSION_SECRET
         sync: false # random string used to sign session cookies
+      - key: VAPID_PUBLIC_KEY
+        sync: false # web-push public key (npx web-push generate-vapid-keys)
+      - key: VAPID_PRIVATE_KEY
+        sync: false # web-push private key (keep secret)
+      - key: VAPID_SUBJECT
+        value: "mailto:admin@example.com" # contact for the push service
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false # optional: for AI image generation (free Workers AI)
       - key: CLOUDFLARE_API_TOKEN

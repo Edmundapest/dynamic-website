@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>The Wall</title>
 <meta name="description" content="A shared wall of links and notes, each investigated by AI." />
+<meta name="theme-color" content="#0a0e1a" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="The Wall" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <style>
   :root {
     --bg: #0a0e1a; --bg2: #0e1428;
@@ -163,6 +170,18 @@
       <input id="author" maxlength="40" placeholder="Your name (optional)" />
       <textarea id="postBody" maxlength="1000" placeholder="https://… or a thought — ⌘/Ctrl + Enter to post"></textarea>
       <button class="btn primary" id="btnPost">Post</button>
+    </div>
+  </div>
+
+  <!-- Notifications (Web Push). On iPhone this only works once the site is
+       added to the Home Screen (iOS 16.4+); the hint below explains that. -->
+  <div class="panel" id="pushPanel">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h2 style="margin:0">🔔 New-post notifications</h2>
+        <p class="hint" id="pushHint">Get a push on this device whenever someone posts to the wall.</p>
+      </div>
+      <button class="btn primary sm" id="btnPush" disabled>Enable</button>
     </div>
   </div>
 
@@ -455,7 +474,115 @@ async function refresh() {
   }
 }
 
+// ---- Web Push / PWA install ----
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+  navigator.standalone === true;
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+let swReg = null;
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function setPushUI(state, msg) {
+  const btn = $("btnPush");
+  const hint = $("pushHint");
+  if (state === "on") {
+    btn.textContent = "Disable"; btn.className = "btn ghost sm"; btn.disabled = false;
+    hint.textContent = "Notifications are on for this device. You'll get a push on every new post.";
+  } else if (state === "unsupported") {
+    btn.disabled = true; hint.textContent = msg || "This browser can't show web notifications.";
+  } else if (state === "needs-install") {
+    btn.disabled = true; btn.textContent = "Add to Home Screen";
+    hint.textContent = msg || "On iPhone, add this site to your Home Screen first, then enable notifications here.";
+  } else if (state === "unconfigured") {
+    btn.disabled = true; hint.textContent = "Notifications aren't configured on the server yet.";
+  } else { // off
+    btn.disabled = false; btn.className = "btn primary sm"; btn.textContent = "Enable";
+    hint.textContent = msg || "Get a push on this device whenever someone posts to the wall.";
+  }
+}
+
+async function activeSubscription() {
+  if (!pushSupported) return null;
+  try {
+    const reg = swReg || (await navigator.serviceWorker.ready);
+    return await reg.pushManager.getSubscription();
+  } catch { return null; }
+}
+
+async function enablePush() {
+  if (!pushSupported) return setPushUI("unsupported");
+  // iOS only exposes push to installed PWAs; guide the user there.
+  if (isIOS && !standalone) return setPushUI("needs-install");
+  try {
+    swReg = swReg || (await navigator.serviceWorker.register("/sw.js"));
+  } catch (e) { return toast("Couldn't set up notifications: " + e.message); }
+
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") { setPushUI("off", "Notifications were blocked in your browser settings."); return; }
+
+  try {
+    const { publicKey } = await api("/api/push/public-key");
+    if (!publicKey) return setPushUI("unconfigured");
+    const sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await api("/api/push/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub }),
+    });
+    setPushUI("on");
+    toast("Notifications on 🔔");
+  } catch (e) {
+    toast("Couldn't enable notifications: " + e.message);
+  }
+}
+
+async function disablePush() {
+  try {
+    const sub = await activeSubscription();
+    if (sub) {
+      await api("/api/push/unsubscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+    setPushUI("off");
+    toast("Notifications off");
+  } catch (e) { toast("Failed: " + e.message); }
+}
+
+$("btnPush").onclick = async () => {
+  const sub = await activeSubscription();
+  if (sub) disablePush(); else enablePush();
+};
+
+async function initPush() {
+  if (!pushSupported) return setPushUI("unsupported");
+  if (isIOS && !standalone) return setPushUI("needs-install");
+  try { swReg = await navigator.serviceWorker.register("/sw.js"); } catch {}
+  // Surface a server-side misconfiguration early.
+  try {
+    const st = await api("/api/push/status");
+    if (!st.configured) return setPushUI("unconfigured");
+  } catch {}
+  const sub = await activeSubscription();
+  setPushUI(sub && Notification.permission === "granted" ? "on" : "off");
+}
+
 checkSession().then(refresh);
+initPush();
 </script>
 </body>
 </html>

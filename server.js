@@ -7,6 +7,7 @@ const express = require("express");
 const db = require("./db");
 const auth = require("./auth");
 const enrich = require("./enrich");
+const push = require("./push");
 
 const app = express();
 app.use(express.json({ limit: "16kb" }));
@@ -15,6 +16,18 @@ app.use(express.json({ limit: "16kb" }));
 // (served automatically by the static handler's index.html).
 app.get("/dashboard", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
+});
+// The service worker must be served from the site root so its scope covers the
+// whole app, and it must never be cached (browsers hard-cache SW scripts).
+app.get("/sw.js", (_req, res) => {
+  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Service-Worker-Allowed", "/");
+  res.sendFile(path.join(__dirname, "public", "sw.js"));
+});
+app.get("/manifest.webmanifest", (_req, res) => {
+  res.setHeader("Content-Type", "application/manifest+json");
+  res.sendFile(path.join(__dirname, "public", "manifest.webmanifest"));
 });
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -50,6 +63,49 @@ app.post("/api/logout", (_req, res) => {
 
 app.get("/api/session", (req, res) => {
   res.json({ ok: true, authenticated: auth.isAuthed(req) });
+});
+
+// --- Web Push subscriptions ----------------------------------------------
+// Anyone may subscribe (viewers included). We only ever store the opaque
+// subscription object the browser hands us; no personal data.
+
+app.get("/api/push/status", async (_req, res) => {
+  try {
+    res.json({ ok: true, configured: push.isConfigured(), subscribers: await push.countSubscriptions() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// The VAPID public key the client uses to create a subscription.
+app.get("/api/push/public-key", (_req, res) => {
+  res.json({ ok: true, publicKey: push.publicKey() });
+});
+
+app.post("/api/push/subscribe", async (req, res) => {
+  const sub = req.body && req.body.subscription;
+  if (!push.validSubscription(sub)) {
+    return res.status(400).json({ ok: false, error: "invalid subscription" });
+  }
+  if (!push.isConfigured()) {
+    return res.status(503).json({ ok: false, error: "push is not configured on the server" });
+  }
+  try {
+    await push.saveSubscription(sub, req.headers["user-agent"]);
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/push/unsubscribe", async (req, res) => {
+  const endpoint = req.body && req.body.endpoint;
+  try {
+    const removed = await push.removeSubscription(endpoint);
+    res.json({ ok: true, removed });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // --- Wall posts ----------------------------------------------------------
@@ -113,6 +169,11 @@ app.post("/api/posts", auth.requireAuth, async (req, res) => {
       [author || null, body, kind, url]
     );
     enrich.enqueue(rows[0].id); // fire-and-forget; response returns immediately
+    // Notify every subscribed device. Fire-and-forget so a slow push service
+    // never delays the poster's response.
+    push
+      .notifyNewPost(rows[0])
+      .catch((err) => console.warn(`Push broadcast failed: ${err.message}`));
     res.status(201).json({ ok: true, post: rows[0] });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

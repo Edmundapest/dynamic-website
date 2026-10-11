@@ -73,6 +73,21 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
   // Generated card images are stored out-of-band so the feed stays small.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
+
+  // Web Push subscriptions (one row per browser/device that enabled alerts).
+  // `endpoint` is the unique push-service URL; keys authenticate the payload
+  // encryption for that device. Rows are pruned when the service reports 404/410.
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id           SERIAL PRIMARY KEY,
+      endpoint     TEXT NOT NULL UNIQUE,
+      p256dh       TEXT NOT NULL,
+      auth         TEXT NOT NULL,
+      user_agent   TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 }
 
 async function query(text, params) {
