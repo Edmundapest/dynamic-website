@@ -20,9 +20,10 @@ demo dashboard now lives at `/dashboard`.
 | `fetchPage.js` | SSRF-safe page fetcher + regex HTML extraction (no deps). |
 | `enrich.js` | Async enrichment worker: fetch → AI → DB update. |
 | `push.js` | Web Push: VAPID setup, subscription storage, broadcast on new posts. |
+| `wallpaper.js` | Daily Bing wallpaper lookup (bing.gifposter.com, Bing archive fallback), cached in memory. |
 | `public/index.html` | The wall (home page). |
 | `public/dashboard.html` | The original DB dashboard at `/dashboard`. |
-| `public/theme.js` | Per-browser theme engine: 24 presets + custom RGB picker (localStorage). |
+| `public/theme.js` | Per-browser theme engine: 24 presets + custom RGB picker + daily wallpaper layer (localStorage). |
 | `public/sw.js` | Service worker: shows push notifications, opens the app on tap. |
 | `public/manifest.webmanifest` | PWA manifest (installable app + icons). |
 | `public/icon-*.png`, `public/apple-touch-icon.png` | App icons. |
@@ -37,6 +38,7 @@ demo dashboard now lives at `/dashboard`.
 | `GET /` | The wall. Without the password it shows only the login gate — no feed. |
 | `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). Data requires login. |
 | `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. **Public.** |
+| `GET /api/wallpaper` | Today's Bing wallpaper URL + title/credit. Cached 30 min. **Public.** |
 | `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
 | `GET /api/posts` | **Auth.** The private feed of posts (with their AI cards). |
 | `POST /api/posts` | **Auth.** Create a post `{ author, body, tags }`; returns `pending`, enriches in the background. |
@@ -120,6 +122,22 @@ colors as CSS custom properties on `<html>` (overriding each page's `:root`), an
 injects the picker UI. It's loaded in `<head>` so there's no flash of the default
 theme. See `window.WallTheme` in the console for the theme list and a `set()` API.
 
+### Daily wallpaper
+
+The background follows Bing's **image of the day** (mirrored by
+<https://bing.gifposter.com/>). `wallpaper.js` scrapes the current `og:image`
+from that page (falling back to Bing's public image archive API), caches the
+result for 30 minutes, and exposes it at `GET /api/wallpaper`. The client
+(`theme.js`) paints it as a fixed layer behind every page, with a theme-colored
+overlay so cards and text stay readable; light and dark themes get different
+overlay strengths. It refreshes on load, every hour, and when the tab becomes
+visible again.
+
+The choice is per-browser: untick **Daily Bing wallpaper** in the 🎨 panel to
+go back to the plain theme background. The panel also shows today's title and a
+credit link. If the source is unreachable, the app keeps the normal theme
+background (and the last good wallpaper, if one was already cached).
+
 ### Themed app icon
 
 The theme also re-tints the **icon** via a small server generator (`icons.js` +
@@ -141,8 +159,9 @@ during install, with no cookie).
 ## Security
 
 The wall and dashboard are **private**: everything except `/healthz`, the
-auth/session routes, and the two public push endpoints requires the shared
-password. What's in place:
+auth/session routes, the two public push endpoints (public key + status) and
+`/api/wallpaper` requires the shared password. The wallpaper endpoint only
+returns a public Bing image URL and its title. What's in place:
 
 - **All data is auth-gated.** Reads (`/api/posts`, images, stats, notes) and
   writes return `401` without a valid session cookie, so an unauthorized visitor

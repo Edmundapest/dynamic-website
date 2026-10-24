@@ -11,6 +11,7 @@ const auth = require("./auth");
 const enrich = require("./enrich");
 const push = require("./push");
 const icons = require("./icons");
+const wallpaper = require("./wallpaper");
 
 const app = express();
 
@@ -161,6 +162,19 @@ const pickColor = () => PALETTE[Math.floor(Math.random() * PALETTE.length)];
 // Used by Render's health check and the keep-warm cron.
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime() });
+});
+
+// Today's Bing wallpaper (mirrored by bing.gifposter.com). Public: the login
+// page and the dashboard both use it as a background. Cached upstream by the
+// wallpaper module, and by the browser for half an hour.
+app.get("/api/wallpaper", async (_req, res) => {
+  try {
+    const data = await wallpaper.getWallpaper();
+    res.setHeader("Cache-Control", "public, max-age=1800, stale-while-revalidate=86400");
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: "wallpaper unavailable" });
+  }
 });
 
 // --- Session auth (shared posting password) ------------------------------

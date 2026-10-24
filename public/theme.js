@@ -153,10 +153,104 @@
     var t = currentTheme();
     applyVars(buildVars(t));
     updateIconLinks(t);
+    applyWallpaper();
   }
 
+  // --- daily Bing wallpaper ------------------------------------------------
+  // The server resolves today's image (bing.gifposter.com, with Bing's own
+  // archive as a fallback) and the browser paints it behind the theme as a
+  // fixed layer, topped by a theme-tinted gradient so text stays readable.
+  var WALL_KEY = "wall_wallpaper_v1";
+  var WALL_REFRESH_MS = 60 * 60 * 1000;
+  var WALL_RETRY_MS = 10 * 60 * 1000;
+  var wallData = null;
+  var wallLastTry = 0;
+
+  function wallpaperEnabled() {
+    try { return localStorage.getItem(WALL_KEY) !== "off"; } catch (e) { return true; }
+  }
+  function setWallpaperEnabled(on) {
+    try {
+      if (on) localStorage.removeItem(WALL_KEY);
+      else localStorage.setItem(WALL_KEY, "off");
+    } catch (e) { /* private mode */ }
+  }
+  function applyWallpaper() {
+    if (!wallData || !wallData.url || !wallpaperEnabled()) {
+      root.classList.remove("has-wallpaper");
+      renderWallCredit();
+      return;
+    }
+    var t = currentTheme();
+    root.style.setProperty("--wall-rgb", hexToRgb(t.bg).join(","));
+    root.style.setProperty("--wall-top", t.dark ? "0.72" : "0.80");
+    root.style.setProperty("--wall-bottom", t.dark ? "0.88" : "0.92");
+    var url = String(wallData.url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    root.style.setProperty("--wallpaper", 'url("' + url + '")');
+    root.classList.add("has-wallpaper");
+    renderWallCredit();
+  }
+  function loadWallpaper(force) {
+    if (!wallpaperEnabled()) return;
+    if (!force && Date.now() - wallLastTry < WALL_RETRY_MS) return;
+    wallLastTry = Date.now();
+    fetch("/api/wallpaper", { headers: { Accept: "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.ok && d.url) { wallData = d; applyWallpaper(); }
+      })
+      .catch(function () { /* keep the theme background */ });
+  }
+  function renderWallCredit() {
+    var box = document.getElementById("wt-wall-credit");
+    if (!box) return;
+    box.textContent = "";
+    if (!wallpaperEnabled()) {
+      box.textContent = "Daily wallpaper is off for this device.";
+      return;
+    }
+    if (!wallData) {
+      box.textContent = "Loading today's Bing wallpaper…";
+      return;
+    }
+    box.appendChild(document.createTextNode(wallData.title || "Bing image of the day"));
+    if (wallData.copyright) {
+      box.appendChild(document.createTextNode(" · " + wallData.copyright));
+    }
+    var a = document.createElement("a");
+    a.href = wallData.page || "https://bing.gifposter.com/";
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = " bing.gifposter.com";
+    box.appendChild(a);
+  }
+  function injectWallpaperCSS() {
+    if (document.getElementById("wt-wall-css")) return;
+    var s = document.createElement("style");
+    s.id = "wt-wall-css";
+    s.textContent = [
+      "html.has-wallpaper body::before{content:'';position:fixed;top:0;right:0;bottom:0;left:0;",
+      "z-index:-1;pointer-events:none;background-image:",
+      "radial-gradient(1100px 600px at 12% -8%,rgba(var(--glow-a),0.18),transparent 60%),",
+      "radial-gradient(900px 500px at 100% 0%,rgba(var(--glow-b),0.12),transparent 55%),",
+      "radial-gradient(900px 700px at 50% 130%,rgba(var(--glow-c),0.08),transparent 60%),",
+      "linear-gradient(180deg,rgba(var(--wall-rgb),var(--wall-top)),rgba(var(--wall-rgb),var(--wall-bottom))),var(--wallpaper);",
+      "background-size:auto,auto,auto,auto,cover;background-position:center,center,center,center,center;",
+      "background-repeat:no-repeat,no-repeat,no-repeat,no-repeat,no-repeat}",
+      "@media (prefers-reduced-motion: no-preference){html.has-wallpaper body::before{animation:wt-wall-fade .6s ease both}}",
+      "@keyframes wt-wall-fade{from{opacity:0}to{opacity:1}}"
+    ].join("");
+    document.head.appendChild(s);
+  }
+
+  injectWallpaperCSS();
   // Apply immediately (script sits in <head>, before the body paints).
   apply();
+  loadWallpaper(true);
+  setInterval(function () { loadWallpaper(true); }, WALL_REFRESH_MS);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) loadWallpaper(false);
+  });
 
   // --- picker UI -----------------------------------------------------------
   function el(tag, cls, text) {
@@ -190,6 +284,11 @@
       "#wt-custom{margin-top:14px;border-top:1px solid var(--stroke);padding-top:12px}",
       "#wt-custom .wt-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0;font-size:12.5px}",
       "#wt-custom input[type=color]{width:44px;height:28px;padding:0;border:1px solid var(--stroke);border-radius:8px;background:none;cursor:pointer}",
+      "#wt-wall{margin-top:14px;border-top:1px solid var(--stroke);padding-top:12px}",
+      "#wt-wall label{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}",
+      "#wt-wall .wt-credit{color:var(--muted);font-size:11.5px;margin-top:6px;line-height:1.45}",
+      "#wt-wall .wt-credit a{color:var(--accent2);text-decoration:none}",
+      "#wt-wall .wt-credit a:hover{text-decoration:underline}",
       "#wt-reset{margin-top:10px;width:100%;padding:8px;border-radius:10px;border:1px solid var(--stroke);",
       "background:var(--btn-bg);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}",
       "#wt-reset:hover{background:var(--btn-hover)}",
@@ -269,6 +368,26 @@
     custom.appendChild(el("p", "wt-hint", "Text and surfaces adapt to the background automatically."));
     panel.appendChild(custom);
 
+    // Daily wallpaper, with today's title/credit.
+    var wall = el("div");
+    wall.id = "wt-wall";
+    var wallLabel = el("label");
+    var wallCb = document.createElement("input");
+    wallCb.type = "checkbox";
+    wallCb.checked = wallpaperEnabled();
+    wallCb.onchange = function () {
+      setWallpaperEnabled(wallCb.checked);
+      applyWallpaper();
+      if (wallCb.checked && !wallData) loadWallpaper(true);
+    };
+    wallLabel.appendChild(wallCb);
+    wallLabel.appendChild(el("span", null, "Daily Bing wallpaper"));
+    wall.appendChild(wallLabel);
+    var wallCredit = el("div", "wt-credit");
+    wallCredit.id = "wt-wall-credit";
+    wall.appendChild(wallCredit);
+    panel.appendChild(wall);
+
     function markActive() {
       var kids = grid.querySelectorAll(".wt-sw");
       for (var i = 0; i < kids.length; i++) {
@@ -301,6 +420,7 @@
     document.head.appendChild(style);
     document.body.appendChild(fab);
     document.body.appendChild(panel);
+    renderWallCredit();
   }
 
   if (document.readyState === "loading") {
