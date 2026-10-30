@@ -75,6 +75,16 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
   // Freeform, poster-supplied tags (lowercased) used for filtering.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`);
+  // Where the post came from ('web' or 'whatsapp'), the WhatsApp sender, and
+  // the inbound message id (used to reply and to dedupe Meta's retries).
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'web'`);
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS wa_id TEXT`);
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS wa_message_id TEXT`);
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS wa_replied_at TIMESTAMPTZ`);
+  // NULLs are distinct in Postgres, so web posts don't collide.
+  await getPool().query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS posts_wa_message_idx ON posts (wa_message_id)`
+  );
 
   // One row per (post, voter): makes thumbs-up/down count each person once
   // instead of letting a single visitor spam the counter.

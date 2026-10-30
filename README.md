@@ -20,6 +20,8 @@ demo dashboard now lives at `/dashboard`.
 | `fetchPage.js` | SSRF-safe page fetcher + regex HTML extraction (no deps). |
 | `enrich.js` | Async enrichment worker: fetch → AI → DB update. |
 | `push.js` | Web Push: VAPID setup, subscription storage, broadcast on new posts. |
+| `whatsapp.js` | WhatsApp Cloud API webhook: signed inbound messages → posts → AI-card replies. |
+| `postUtils.js` | Shared URL detection + tag normalization for web and WhatsApp posts. |
 | `wallpaper.js` | Daily Bing wallpaper lookup (bing.gifposter.com, Bing archive fallback), cached in memory. |
 | `public/index.html` | The wall (home page). |
 | `public/dashboard.html` | The original DB dashboard at `/dashboard`. |
@@ -39,6 +41,8 @@ demo dashboard now lives at `/dashboard`.
 | `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). Data requires login. |
 | `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. **Public.** |
 | `GET /api/wallpaper` | Today's Bing wallpaper URL + title/credit. Cached 30 min. **Public.** |
+| `GET /api/whatsapp/webhook` | Meta's webhook verification challenge (`hub.challenge`). **Public.** |
+| `POST /api/whatsapp/webhook` | Signed inbound WhatsApp messages. Creates posts + replies. **Public, signature-verified.** |
 | `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
 | `GET /api/posts` | **Auth.** The private feed of posts (with their AI cards). |
 | `POST /api/posts` | **Auth.** Create a post `{ author, body, tags }`; returns `pending`, enriches in the background. |
@@ -159,9 +163,12 @@ during install, with no cookie).
 ## Security
 
 The wall and dashboard are **private**: everything except `/healthz`, the
-auth/session routes, the two public push endpoints (public key + status) and
-`/api/wallpaper` requires the shared password. The wallpaper endpoint only
-returns a public Bing image URL and its title. What's in place:
+auth/session routes, the two public push endpoints (public key + status),
+`/api/wallpaper`, and the WhatsApp webhook requires the shared password. The
+wallpaper endpoint only returns a public Bing image URL and its title. The
+WhatsApp webhook is public by necessity but requires Meta's HMAC signature, an
+allowlisted sender, and dedupes retries via `posts.wa_message_id`. What's in
+place:
 
 - **All data is auth-gated.** Reads (`/api/posts`, images, stats, notes) and
   writes return `401` without a valid session cookie, so an unauthorized visitor
@@ -228,6 +235,58 @@ The page detects this: if you're on iOS in a Safari tab, the button guides you
 to add it to the Home Screen first. Push also requires **HTTPS** (Render provides
 it); on `localhost` most browsers treat it as a secure context too.
 
+## Posting from WhatsApp (optional)
+
+The wall can accept posts from WhatsApp and reply in the chat with the finished
+AI card. It uses the **WhatsApp Cloud API** and the same async enrichment worker
+as the website, so posting is instant and the card arrives a few seconds later.
+
+**Flow:** you message the business number → the webhook verifies Meta's HMAC
+signature and the sender allowlist → a `posts` row is created (`source =
+'whatsapp'`) → you get an acknowledgement → when the AI card is ready,
+`enrich.js` sends it back as a WhatsApp reply. Card replies are claimed with
+`wa_replied_at`, so regenerating a post on the wall won't spam the chat.
+
+### 1. Create the Meta app
+
+1. In <https://developers.facebook.com>, create an app with the **WhatsApp**
+   product, or use an existing WhatsApp Business Account.
+2. Open **WhatsApp → API Setup**. Note the **Phone number ID** (not the phone
+   number itself). For production, create a **System User** permanent token
+   with `whatsapp_business_messaging`; the 24-hour test token expires quickly.
+3. In **App settings → Basic**, copy the **App secret**.
+
+### 2. Configure the server
+
+Set these in Render (or `.env` locally):
+
+| Name | Purpose |
+|---|---|
+| `WHATSAPP_TOKEN` | Permanent access token used to send replies. |
+| `WHATSAPP_PHONE_NUMBER_ID` | The sending number's Cloud API phone number ID. |
+| `WHATSAPP_VERIFY_TOKEN` | Any random string; paste the same value into Meta's webhook setup. |
+| `WHATSAPP_APP_SECRET` | Meta app secret, used to verify `X-Hub-Signature-256`. |
+| `WHATSAPP_ALLOWED_NUMBERS` | Comma-separated E.164 digits (no `+`) allowed to post. **Required** — with it empty every sender is ignored and logged. |
+| `WHATSAPP_API_VERSION` | Optional Graph API version (default `v23.0`; override when Meta deprecates it). |
+| `PUBLIC_URL` | Optional link back to the wall; Render injects `RENDER_EXTERNAL_URL` automatically. |
+
+### 3. Register the webhook
+
+In **WhatsApp → Configuration → Webhook**:
+
+- **Callback URL:** `https://<your-app>/api/whatsapp/webhook`
+- **Verify token:** the same `WHATSAPP_VERIFY_TOKEN`
+- Subscribe to the **messages** field.
+
+Meta immediately calls the `GET` endpoint; a correct token returns the challenge
+as plain text. Send a WhatsApp message from a number in
+`WHATSAPP_ALLOWED_NUMBERS`; you should get an acknowledgement, then the card.
+
+**Notes:** replies use the free-form 24-hour customer-service window (the reply
+arrives within that window), and media messages are posted by their **caption**
+only — the file itself isn't downloaded. The Graph API version is configurable
+because Meta retires old versions; the endpoint shape is stable.
+
 ## Environment variables
 
 | Name | Required | Purpose |
@@ -238,6 +297,10 @@ it); on `localhost` most browsers treat it as a secure context too.
 | `SESSION_SECRET` | yes | Random string used to sign session cookies. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | yes* | Web-push signing keys (see below). Without them, notifications are disabled but the app runs. |
 | `VAPID_SUBJECT` | no | Contact for the push service, e.g. `mailto:you@example.com`. |
+| `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` | no | WhatsApp Cloud API token + phone number ID. Without them replies are disabled. |
+| `WHATSAPP_VERIFY_TOKEN` / `WHATSAPP_APP_SECRET` | no | Webhook verification + signature checking. Both are required for the webhook. |
+| `WHATSAPP_ALLOWED_NUMBERS` | no* | Comma-separated E.164 senders allowed to post (*the webhook ignores everyone while empty). |
+| `WHATSAPP_API_VERSION` | no | Graph API version (default `v23.0`). |
 | `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | no | Override DeepSeek endpoint/model. |
 
 Generate a session secret:

@@ -101,6 +101,8 @@
   .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800;
     color: #071022; background: linear-gradient(135deg, var(--accent), var(--accent2)); flex: none; }
   .who { color: var(--text); font-weight: 700; }
+  .src-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--accent2); border: 1px solid var(--stroke); border-radius: 999px; padding: 2px 6px; }
   .meta .when { margin-left: auto; }
   .summary { font-size: 14.5px; line-height: 1.55; }
   .section-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 6px; }
@@ -425,7 +427,9 @@ function makeCard(p) {
   // Author row (social style) + collapse toggle.
   const meta = el("div", "meta");
   const av = el("div", "avatar", initials(p.author)); av.textContent = initials(p.author);
-  meta.append(av, el("span", "who", p.author || "Anonymous"), el("span", "when", relTime(p.created_at)));
+  meta.append(av, el("span", "who", p.author || "Anonymous"));
+  if (p.source === "whatsapp") meta.append(el("span", "src-tag", "WhatsApp"));
+  meta.append(el("span", "when", relTime(p.created_at)));
   const chev = el("button", "chev");
   chev.type = "button";
   meta.append(chev);

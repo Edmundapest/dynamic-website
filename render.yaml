@@ -34,5 +34,17 @@ services:
         sync: false # optional: for AI image generation (free Workers AI)
       - key: CLOUDFLARE_API_TOKEN
         sync: false # optional: Cloudflare API token with Workers AI permission
+      - key: WHATSAPP_TOKEN
+        sync: false # optional: permanent Meta System User access token
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false # optional: WhatsApp Cloud API phone number ID
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false # optional: webhook verify token (any random string)
+      - key: WHATSAPP_APP_SECRET
+        sync: false # optional: Meta app secret for webhook signatures
+      - key: WHATSAPP_ALLOWED_NUMBERS
+        sync: false # optional: comma-separated E.164 senders allowed to post
+      - key: WHATSAPP_API_VERSION
+        value: "v23.0" # override if Meta deprecates this version
       - key: NODE_VERSION
         value: "22"

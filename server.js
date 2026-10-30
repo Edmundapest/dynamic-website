@@ -12,6 +12,8 @@ const enrich = require("./enrich");
 const push = require("./push");
 const icons = require("./icons");
 const wallpaper = require("./wallpaper");
+const whatsapp = require("./whatsapp");
+const { detectUrl, parseTags } = require("./postUtils");
 
 const app = express();
 
@@ -47,6 +49,13 @@ app.use(
   })
 );
 
+// Meta signs the RAW webhook bytes, so keep this route's body unparsed until
+// the signature is checked. A larger cap because one delivery can batch
+// several messages.
+app.use(
+  "/api/whatsapp/webhook",
+  express.raw({ type: "application/json", limit: "256kb" })
+);
 app.use(express.json({ limit: "16kb" }));
 
 // --- Rate limiting (brute force + flood defence) -------------------------
@@ -177,6 +186,39 @@ app.get("/api/wallpaper", async (_req, res) => {
   }
 });
 
+// --- WhatsApp Cloud API ---------------------------------------------------
+// Meta verifies the callback with a GET challenge, then POSTs signed message
+// events. We acknowledge immediately and let enrich.js send the card reply
+// once the AI work is done.
+app.get("/api/whatsapp/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (mode !== "subscribe" || !whatsapp.verifyToken(token)) {
+    return res.status(403).end();
+  }
+  res.type("text/plain").send(String(challenge || ""));
+});
+
+app.post("/api/whatsapp/webhook", (req, res) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!whatsapp.verifySignature(raw, req.get("x-hub-signature-256"))) {
+    return res.status(403).json({ ok: false, error: "bad signature" });
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw.toString("utf8"));
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad json" });
+  }
+
+  // Meta retries on slow/non-200 responses; ack before doing any work.
+  res.sendStatus(200);
+  whatsapp.handleWebhook(payload).catch((err) => {
+    console.warn(`WhatsApp webhook failed: ${err.message}`);
+  });
+});
+
 // --- Session auth (shared posting password) ------------------------------
 app.post("/api/login", loginLimiter, (req, res) => {
   const password = (req.body && req.body.password) || "";
@@ -240,36 +282,7 @@ app.post("/api/push/unsubscribe", writeLimiter, auth.requireAuth, async (req, re
 });
 
 // --- Wall posts ----------------------------------------------------------
-// Reads are public; writes require the shared password (requireAuth).
-
-function detectUrl(text) {
-  const m = text.match(/https?:\/\/[^\s<>"']+/i);
-  if (!m) return null;
-  try {
-    const u = new URL(m[0]);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
-// Normalize poster tags: lowercase, strip "#", keep [a-z0-9_-], dedupe, cap.
-function parseTags(input) {
-  const arr = Array.isArray(input) ? input : String(input || "").split(/[,\s]+/);
-  const seen = new Set();
-  const out = [];
-  for (let t of arr) {
-    t = String(t).trim().toLowerCase().replace(/^#/, "").replace(/[^a-z0-9_-]/g, "");
-    if (!t) continue;
-    if (t.length > 24) t = t.slice(0, 24);
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-    if (out.length >= 8) break;
-  }
-  return out;
-}
+// Reads and writes require the shared password (requireAuth).
 
 // A per-browser id (from localStorage) that lets us count one vote per person.
 function cleanVoter(v) {
@@ -282,7 +295,7 @@ function cleanVoter(v) {
 app.get("/api/posts", auth.requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, tags, created_at, updated_at
+      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, tags, source, created_at, updated_at
          FROM posts ORDER BY created_at DESC LIMIT 100`
     );
     const voter = cleanVoter(req.get("x-voter-id"));
@@ -333,7 +346,7 @@ app.post("/api/posts", writeLimiter, auth.requireAuth, async (req, res) => {
     const { rows } = await db.query(
       `INSERT INTO posts (author, body, kind, url, status, tags)
        VALUES ($1, $2, $3, $4, 'pending', $5)
-       RETURNING id, author, body, kind, url, status, tags, created_at`,
+       RETURNING id, author, body, kind, url, status, tags, source, created_at`
       [author || null, body, kind, url, tags]
     );
     enrich.enqueue(rows[0].id); // fire-and-forget; response returns immediately

@@ -56,9 +56,52 @@ async function buildFeedbackGuidance() {
   }
 }
 
+// Send the finished card back to the WhatsApp sender exactly once. We claim
+// wa_replied_at first so a manual "Regenerate" can't spam the same chat.
+async function maybeReplyWhatsApp(post, card) {
+  if (!post || post.source !== "whatsapp" || !post.wa_id || post.wa_replied_at) return;
+
+  // Never let a reply/DB hiccup turn a successfully enriched card into an
+  // "error" post.
+  try {
+    const whatsapp = require("./whatsapp");
+    if (!whatsapp.sendConfigured()) return;
+    const { rows } = await db.query(
+      `UPDATE posts SET wa_replied_at = now()
+        WHERE id = $1 AND wa_replied_at IS NULL
+        RETURNING id`,
+      [post.id]
+    );
+    if (!rows.length) return;
+
+    try {
+      await whatsapp.sendCardReply(post, card);
+    } catch (err) {
+      // Release the claim so a later regenerate can retry the reply.
+      await db.query("UPDATE posts SET wa_replied_at = NULL WHERE id = $1", [post.id]).catch(() => {});
+      throw err;
+    }
+  } catch (err) {
+    console.warn(`WhatsApp card reply failed for post ${post.id}: ${err.message}`);
+  }
+}
+
+// Error replies aren't claimed: a later successful regenerate can still send
+// the real card to the chat.
+async function maybeReplyWhatsAppError(post, err) {
+  if (!post || post.source !== "whatsapp" || !post.wa_id) return;
+  try {
+    const whatsapp = require("./whatsapp");
+    if (!whatsapp.sendConfigured()) return;
+    await whatsapp.sendErrorReply(post, err);
+  } catch (e) {
+    console.warn(`WhatsApp error reply failed for post ${post.id}: ${e.message}`);
+  }
+}
+
 async function enrichPost(id) {
   const { rows } = await db.query(
-    "SELECT id, kind, url, body FROM posts WHERE id = $1",
+    "SELECT id, kind, url, body, source, wa_id, wa_message_id, wa_replied_at FROM posts WHERE id = $1",
     [id]
   );
   const post = rows[0];
@@ -232,6 +275,8 @@ async function enrichPost(id) {
        WHERE id = $2`,
       [card, id, aiTags]
     );
+
+    await maybeReplyWhatsApp(post, card);
   } catch (err) {
     await db
       .query(
@@ -239,6 +284,7 @@ async function enrichPost(id) {
         [String(err.message || err).slice(0, 500), id]
       )
       .catch(() => {});
+    await maybeReplyWhatsAppError(post, err);
   }
 }
 
