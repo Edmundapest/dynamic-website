@@ -254,7 +254,34 @@ signature and the sender allowlist → a `posts` row is created (`source =
 2. Open **WhatsApp → API Setup**. Note the **Phone number ID** (not the phone
    number itself). For production, create a **System User** permanent token
    with `whatsapp_business_messaging`; the 24-hour test token expires quickly.
-3. In **App settings → Basic**, copy the **App secret**.
+3. In **App settings → Basic**, copy the **App secret** and **App ID**.
+
+### Automated setup helper
+
+`scripts/whatsapp-setup.js` can do most of the setup for you:
+
+```bash
+npm run whatsapp:setup
+```
+
+It will generate `WHATSAPP_VERIFY_TOKEN` if needed, validate the Meta token and
+phone number ID, set the WhatsApp env vars on Render, trigger a deploy, verify
+the public webhook challenge, and configure the Meta webhook + WABA
+subscription. It never prints secret values.
+
+For the automation parts, add these **setup-only** values to `.env` (they are
+not needed by the running app):
+
+| Name | Purpose |
+|---|---|
+| `WHATSAPP_APP_ID` | Meta app ID, used to set the app webhook subscription. |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | WABA id; lets the helper find the phone number ID and subscribe the WABA. |
+| `RENDER_API_KEY` | Render Account Settings → API Keys. Lets the helper set env vars and deploy. |
+| `RENDER_SERVICE_ID` | Optional `srv-…`; otherwise the helper finds the service named `dynamic-website`. |
+
+Use `npm run whatsapp:setup -- --check` to validate without changing anything,
+`--render` to only configure Render, or `--meta` to only configure Meta. If you
+prefer the dashboard, skip the helper and follow the manual steps below.
 
 ### 2. Configure the server
 
@@ -269,6 +296,8 @@ Set these in Render (or `.env` locally):
 | `WHATSAPP_ALLOWED_NUMBERS` | Comma-separated E.164 digits (no `+`) allowed to post. **Required** — with it empty every sender is ignored and logged. |
 | `WHATSAPP_API_VERSION` | Optional Graph API version (default `v23.0`; override when Meta deprecates it). |
 | `PUBLIC_URL` | Optional link back to the wall; Render injects `RENDER_EXTERNAL_URL` automatically. |
+| `WHATSAPP_APP_ID` / `WHATSAPP_BUSINESS_ACCOUNT_ID` | Setup-only; used by `npm run whatsapp:setup` to register the webhook and subscribe the WABA. |
+| `RENDER_API_KEY` / `RENDER_SERVICE_ID` | Setup-only; lets the helper set Render env vars and deploy. |
 
 ### 3. Register the webhook
 
