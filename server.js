@@ -489,10 +489,11 @@ app.post("/api/posts/:id/followup", writeLimiter, auth.requireAuth, async (req, 
     const { webSearch, followupQuery } = require("./search");
 
     // A follow-up usually asks for something the card does not contain ("find 10
-    // more events"), so search the web for it, keeping the post's topic, and also
-    // read the listing pages the post already points at - those are where the
-    // actual event names and dates are.
-    const query = followupQuery(prompt, post.card || {});
+    // more events"), so search the web for it, keeping the post's topic (and,
+    // for generic asks, nudging towards what this wall likes), then read the
+    // listing pages the post already points at.
+    const profile = await prefs.get();
+    const query = followupQuery(prompt, post.card || {}, profile.terms);
     const refs = Array.isArray(post.card && post.card.references) ? post.card.references : [];
     const results = await webSearch(query, 10).catch((err) => {
       console.warn(`follow-up search failed: ${err.message}`);
@@ -521,7 +522,6 @@ app.post("/api/posts/:id/followup", writeLimiter, auth.requireAuth, async (req, 
       )
     ).filter(Boolean);
 
-    const profile = await prefs.get();
     const answer = await ai.continueThread({
       card: post.card || {},
       body: post.body,

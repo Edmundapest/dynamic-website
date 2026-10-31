@@ -118,7 +118,9 @@ separate feature. Replaces the old single poster note.
 A follow-up is not limited to what the card already knows. For every question it
 
 1. runs a web search built from the prompt **plus** the post's keywords, so
-   "find 10 more events" stays about the same topic;
+   "find 10 more events" stays about the same topic. For generic asks ("what else
+   should we do?") the learned interests are mixed in too, which is how a
+   classical/MPO-loving wall gets orchestral options surfaced;
 2. reads up to four pages that actually list things — the post's own source and
    references (whatsonkl, Eventbrite, the event's site) and the top two search
    hits — and hands their text to the model;

@@ -190,11 +190,22 @@ async function ddgSearch(query, limit) {
 const FILLER = /^(?:find|show|give|list|suggest|tell|me|us|please|can|could|would|you|i|we|any|some|more|new|other|another|else|additional|different|top|about|with|for|and|the|a|an|\d+)$/i;
 
 // A follow-up like "find 10 more events" has no topic of its own: borrow the
-// post's keywords so the search stays about the same thing.
-function followupQuery(prompt, card) {
+// post's keywords so the search stays about the same thing. When the ask is
+// generic ("what else should we do?") the wall's own interests are mixed in too,
+// otherwise the profile could never surface the things this wall actually likes.
+const GENERIC_ASK = /\b(what else|anything else|more|other|another|else|recommend|suggest|suggestions?|ideas?|options?|should we|activities)\b/i;
+
+function followupQuery(prompt, card, interests = []) {
   const base = toQuery(prompt);
   const topic = card && Array.isArray(card.keywords) ? card.keywords.join(" ") : "";
-  const words = `${base} ${topic}`
+  const generic = GENERIC_ASK.test(prompt) || base.split(/\s+/).filter(Boolean).length <= 2;
+  const bias = generic
+    ? (interests || [])
+        .slice(0, 3)
+        .map((t) => String(t).replace(/-/g, " "))
+        .join(" ")
+    : "";
+  const words = `${base} ${topic} ${bias}`
     .split(/\s+/)
     .map((w) => w.trim())
     .filter(Boolean)
