@@ -229,6 +229,14 @@ boxes:
   wall · Halloween", "Selamat Deepavali"), a handful of themed emoji drift down
   the screen (7 on desktop, 4 on phones, none under reduced motion), the logo
   takes the season's emoji, and the month headers follow the palette.
+- **The wallpaper can't eat the text.** The theme wash behind the daily photo is
+  computed from the palette that is *actually on screen* (it used to use the
+  stored theme, so a light theme + a seasonal dark palette washed the photo cream
+  while painting near-white text on it). The wash is heavy (0.89-0.96), and cards,
+  the hero, chips and the app bar get an opaque-ish surface on top
+  (`html.has-wallpaper …`). Over a photo the headline drops its gradient for a
+  solid `--text-strong`, because a gradient whose mid-tones wash out is exactly
+  what you cannot verify by eye.
 - **Contrast is measured, not assumed.** `buildVars()` picks `--text` by comparing
   the light and dark candidates against the actual background, pushes `--muted`
   and `--accent-ink` towards the text colour until they clear 4.5:1, and the

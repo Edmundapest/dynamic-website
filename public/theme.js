@@ -270,7 +270,7 @@
     var t = seasonal || currentTheme();
     applyVars(buildVars(t));
     updateIconLinks(t);
-    applyWallpaper();
+    applyWallpaper(t);
     markSeason(!!seasonal);
   }
 
@@ -375,16 +375,23 @@
       else localStorage.setItem(WALL_KEY, "off");
     } catch (e) { /* private mode */ }
   }
-  function applyWallpaper() {
+  // `theme` is the palette that is actually on screen (seasonal or the reader's
+  // own). Using currentTheme() here was the bug: a stored light theme tinted the
+  // photo with cream, while the seasonal dark palette painted near-white text on
+  // top of it.
+  function applyWallpaper(theme) {
     if (!wallData || !wallData.url || !wallpaperEnabled()) {
       root.classList.remove("has-wallpaper");
       renderWallCredit();
       return;
     }
-    var t = currentTheme();
+    var t = theme || seasonTheme() || currentTheme();
+    var light = luminance(t.bg) >= 0.5; // measured, not t.dark
     root.style.setProperty("--wall-rgb", hexToRgb(t.bg).join(","));
-    root.style.setProperty("--wall-top", t.dark ? "0.72" : "0.80");
-    root.style.setProperty("--wall-bottom", t.dark ? "0.88" : "0.92");
+    // A photo has bright and dark regions, so the wash has to carry the text by
+    // itself; cards and the hero add their own surface on top of it.
+    root.style.setProperty("--wall-top", light ? "0.92" : "0.89");
+    root.style.setProperty("--wall-bottom", light ? "0.97" : "0.95");
     var url = String(wallData.url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     root.style.setProperty("--wallpaper", 'url("' + url + '")');
     root.classList.add("has-wallpaper");
