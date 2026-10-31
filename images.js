@@ -29,8 +29,10 @@ const EXPIRING =
   /(^|\.)(cdninstagram\.com|fbcdn\.net|xhscdn\.com|twimg\.com|licdn\.com|tiktokcdn[\w.-]*\.com|ggpht\.com|googleusercontent\.com|sndcdn\.com|media\.giphy\.com)$/i;
 
 // Platform chrome we never want in a carousel (mirrors fetchPage's filter).
+// `blur_N` is the lazy-load placeholder Wix and others serve before the real
+// picture arrives.
 const JUNK =
-  /(^|\/)(logo|logos|wordmark|icon|icons|favicon|sprite|sprites|badge|placeholder|avatar|spinner|loader)[/_ .-]|picasso-static\.|\/fe-platform\/|maps\.wikimedia\.org|\.svg($|\?)/i;
+  /(^|\/)(logo|logos|wordmark|icon|icons|favicon|sprite|sprites|badge|placeholder|avatar|spinner|loader)[/_ .-]|picasso-static\.|\/fe-platform\/|maps\.wikimedia\.org|blur_\d|scorecardresearch|doubleclick|googletagmanager|google-analytics|hotjar|ui-avatars|gravatar|\/pixel\.(gif|png)|\/1x1\.|\.svg($|\?)/i;
 
 let sharp = null;
 try {
@@ -52,12 +54,22 @@ function isExpiring(url) {
   return !!h && EXPIRING.test(h);
 }
 
-// The sizes to try for one candidate, best first.
+// The URL to try for one candidate. Two shapes are worth normalising:
+//  - Wikimedia only serves a few pre-rendered widths (250 / 500 / 1280 px) and
+//    inline article images are usually the 250px one — ask for the 500px one.
+//  - Wix-style /*.w_N,h_N,... transforms request the original (sometimes 12000px
+//    wide, tens of MB). Ask the CDN for a carousel-sized rendition instead.
 function variants(url) {
-  const m = /^(https?:\/\/[\w.-]*wikimedia\.org\/.*\/thumb\/[^?#]*?)\/(\d{1,4})px-([^/?#]+)([?#].*)?$/i.exec(url);
-  if (!m) return [url];
-  if (Number(m[2]) >= 500) return [url]; // already big enough
-  return [`${m[1]}/500px-${m[3]}`, url];
+  const wm = /^(https?:\/\/[\w.-]*wikimedia\.org\/.*\/thumb\/[^?#]*?)\/(\d{1,4})px-([^/?#]+)([?#].*)?$/i.exec(url);
+  if (wm) {
+    if (Number(wm[2]) >= 500) return [url]; // already big enough
+    return [`${wm[1]}/500px-${wm[3]}`, url];
+  }
+  const wx = /([/?&])w_(\d{3,5}),h_(\d{3,5}),/.exec(url);
+  if (wx && Math.max(Number(wx[2]), Number(wx[3])) > 2000) {
+    return [url.replace(wx[0], `${wx[1]}w_1200,h_900,`)];
+  }
+  return [url];
 }
 
 function tooSmallThumb(url) {
@@ -120,7 +132,8 @@ async function fetchBytes(url) {
     const declared = Number(res.headers.get("content-length") || 0);
     if (declared > MAX_BYTES) {
       if (res.body) await res.body.cancel().catch(() => {});
-      return null;
+      // Tell the caller it is a real image, just far too heavy to serve.
+      return { big: true };
     }
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length || buf.length > MAX_BYTES) return null;
@@ -163,15 +176,22 @@ async function normalizeDataUri(uri) {
   return toStoredDataUri({ buf: Buffer.from(m[2], "base64"), type: m[1].toLowerCase() });
 }
 
+function dedupeKey(url) {
+  let k = String(url).split("?")[0].replace(/\/+$/, "").toLowerCase();
+  // Wix (and friends) serve one picture through many transform URLs: keep the
+  // media id, drop the /v1/... rendition tail so we don't put it in twice.
+  const v = k.indexOf("/v1/");
+  if (v > 0) k = k.slice(0, v);
+  return k;
+}
+
 function dedupe(urls) {
   const seen = new Set();
   const out = [];
   for (const raw of urls) {
     const u = String(raw || "").trim();
     if (!usable(u)) continue;
-    // Compare without the volatile query string so mirrors of the same picture
-    // don't take two slides.
-    const key = u.split("?")[0].replace(/\/+$/, "").toLowerCase();
+    const key = dedupeKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(u);
@@ -207,6 +227,9 @@ async function buildCarousel({ candidates, need = TARGET, generate } = {}) {
       let stored = null;
       if (expiring || sharp) {
         const bytes = await fetchBytes(candidate);
+        // A real but oversized image is no good either: the browser would have
+        // to download it in full, so move on instead of falling back to the URL.
+        if (bytes && bytes.big) break candidates;
         if (bytes && bytes.buf.length < MIN_BYTES) break candidates; // pixel/icon
         if (bytes) stored = await toStoredDataUri(bytes);
       }
@@ -267,8 +290,11 @@ function displayUrls(postId, items, offset = 0) {
 
 module.exports = {
   buildCarousel,
+  preferred: (url) => variants(url)[0],
   displayUrls,
   collect,
+  dedupeKey,
+  usable,
   isImageUrl,
   isExpiring,
   TARGET,

@@ -12,7 +12,7 @@
 //   npm run backfill:images -- --limit 5
 require("../node_modules/dotenv").config();
 const db = require("../db");
-const { buildCarousel, displayUrls, isImageUrl } = require("../images");
+const { buildCarousel, displayUrls, isImageUrl, usable, dedupeKey, preferred } = require("../images");
 const { webSearch } = require("../search");
 const { fetchPage } = require("../fetchPage");
 const { buildImagePrompt, generateCardImage } = require("../imagegen");
@@ -26,9 +26,11 @@ const MAX_GENERATED = 40; // guard the free AI quota on a big wall
 let generated = 0;
 
 // Keep the pictures the card already shows, but drop references that no longer
-// resolve (dead hotlinks, or image rows we never stored).
+// resolve (dead hotlinks, blur placeholders, duplicate renditions of the same
+// photo, or image rows we never stored).
 async function keepExisting(card, stored) {
   const out = [];
+  const seen = new Set();
   for (const u of Array.isArray(card.images) ? card.images : []) {
     if (out.length >= NEED) break;
     const own = /^\/api\/posts\/\d+\/img\/(\d+)$/.exec(String(u));
@@ -37,7 +39,15 @@ async function keepExisting(card, stored) {
       continue;
     }
     if (String(u).startsWith("/api/posts/")) continue; // legacy generated image
-    if (await isImageUrl(u)) out.push({ kind: "own", url: u });
+    // Ask the CDN for a sane rendition of what we already show (a Wix original
+    // can be 12000px wide and tens of MB).
+    const v = preferred(u);
+    if (!usable(v)) continue;
+    const key = dedupeKey(v);
+    if (seen.has(key)) continue;
+    if (!(await isImageUrl(v))) continue;
+    seen.add(key);
+    out.push({ kind: "own", url: v });
   }
   return out;
 }
@@ -88,9 +98,11 @@ async function main() {
     const card = post.card || {};
     const stored = Array.isArray(post.images_data) ? post.images_data : [];
     const existing = Array.isArray(card.images) ? card.images : [];
-    if (existing.length >= NEED) continue;
 
     const keep = await keepExisting(card, stored);
+    // Nothing to do when the card already has five good, distinct slides.
+    if (keep.length >= NEED) continue;
+
     const need = NEED - keep.length;
     const candidates = await candidatesFor(post, card);
     const built = await buildCarousel({
