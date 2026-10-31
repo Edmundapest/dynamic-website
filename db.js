@@ -71,6 +71,9 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_up INT NOT NULL DEFAULT 0`);
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS votes_down INT NOT NULL DEFAULT 0`);
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
+  // Follow-up conversation attached to a card: [{ role, text, at }, ...],
+  // where the AI answers with the post as context.
+  await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS thread JSONB NOT NULL DEFAULT '[]'::jsonb`);
   // Generated card images are stored out-of-band so the feed stays small.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
   // Carousel images we had to download (their source URL expires or refuses

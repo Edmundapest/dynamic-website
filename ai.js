@@ -104,4 +104,52 @@ async function buildCard(context, guidance = "") {
   throw lastErr;
 }
 
-module.exports = { chat, buildCard, MODEL, BASE_URL };
+const THREAD_PROMPT = `You are continuing the conversation under a card on a private wall.
+The reader asks a follow-up about the post. Answer from the post's information
+below: be concrete and brief (2-4 sentences, under 120 words), in plain text.
+Never invent dates, prices or names — if the post does not contain the answer, say
+what is missing and point at the source or listing to check.
+Do not repeat the card's summary back at the reader.`;
+
+// Answers a follow-up prompt about one post, using the card, the original note
+// and the earlier turns of the thread as context.
+async function continueThread({ card, body, url, thread, prompt } = {}) {
+  const c = card || {};
+  const context = [
+    body ? `Posted note: ${body}` : "",
+    url ? `Source: ${url}` : "",
+    c.title ? `Card title: ${c.title}` : "",
+    c.summary ? `Card summary: ${c.summary}` : "",
+    Array.isArray(c.fun_facts) && c.fun_facts.length
+      ? `Known details:\n- ${c.fun_facts.join("\n- ")}`
+      : "",
+    Array.isArray(c.quotes) && c.quotes.length ? `Quotes:\n- ${c.quotes.join("\n- ")}` : "",
+    Array.isArray(c.references) && c.references.length
+      ? `Further reading:\n- ${c.references.map((r) => r.url || r).join("\n- ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 6000);
+
+  const messages = [
+    { role: "system", content: THREAD_PROMPT },
+    { role: "system", content: `Post context:
+${context || "(nothing was captured for this post)"}` },
+  ];
+  for (const m of (Array.isArray(thread) ? thread : []).slice(-12)) {
+    if (!m || !m.text) continue;
+    messages.push({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: String(m.text).slice(0, 1500),
+    });
+  }
+  messages.push({ role: "user", content: String(prompt || "").slice(0, 1000) });
+
+  const raw = await chat(messages, { temperature: 0.6 });
+  const text = String(raw || "").trim().slice(0, 1200);
+  if (!text) throw new Error("empty AI reply");
+  return text;
+}
+
+module.exports = { chat, buildCard, continueThread, MODEL, BASE_URL };

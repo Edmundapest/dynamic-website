@@ -165,6 +165,18 @@
   .vbtn.down.on { border-color: var(--bad); color: #ff9b9b; }
   .usernote { background: rgba(108,140,255,.10); border: 1px dashed var(--stroke); border-radius: 10px; padding: 10px 12px; }
   .usernote .txt { font-size: 13.5px; line-height: 1.5; margin-top: 4px; }
+  /* Follow-up thread: the reader asks, the AI answers with the post in mind. */
+  .thread { display: flex; flex-direction: column; gap: 8px; }
+  .msg { border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 11px; max-width: 92%; }
+  .msg .who { font-size: 10px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 3px; }
+  .msg .txt { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .msg.me { align-self: flex-end; background: rgba(108,140,255,.12); border-color: rgba(108,140,255,.32); }
+  .msg.ai { align-self: flex-start; background: var(--btn-bg); }
+  .msg.pending .txt { color: var(--muted); font-style: italic; }
+  .askbox { display: flex; gap: 8px; }
+  .askbox input { flex: 1; min-width: 0; padding: 9px 11px; }
+  .askbox .btn { flex: 0 0 auto; }
   .notebox { display: flex; gap: 8px; margin-top: 4px; }
   .notebox input { padding: 9px 11px; }
 
@@ -267,6 +279,9 @@
     .vbtn { padding: 4px 10px; font-size: 12.5px; }
     .c-count { font-size: 10px; padding: 2px 6px; bottom: 6px; }
     .notebox { flex-wrap: wrap; }
+    .msg { max-width: 96%; }
+    .msg .txt { font-size: 13px; }
+    .askbox { gap: 6px; }
     .fabdock { right: 12px; bottom: 62px; gap: 10px; }
     .fab { width: 42px; height: 42px; border-radius: 12px; font-size: 18px; }
     #lightbox .lb-nav { width: 40px; height: 40px; font-size: 20px; }
@@ -471,6 +486,15 @@ function el(tag, cls, text) {
   if (cls) n.className = cls;
   if (text != null) n.textContent = text;
   return n;
+}
+
+// One bubble of a post's follow-up thread.
+function threadBubble(m) {
+  const role = m && m.role === "assistant" ? "ai" : "me";
+  const b = el("div", "msg " + role + (m && m.pending ? " pending" : ""));
+  b.append(el("div", "who", role === "ai" ? "AI" : "You"));
+  b.append(el("div", "txt", String((m && m.text) || "")));
+  return b;
 }
 
 // ---- Photo carousel + lightbox ----
@@ -740,33 +764,64 @@ function makeCard(p) {
     }
   }
 
-  // Poster's note.
-  if (p.user_note) {
-    const n = el("div", "usernote");
-    n.append(el("div", "section-label", "Poster's note"));
-    n.append(el("div", "txt", p.user_note));
-    content.append(n);
-  }
-
-  // Note editor (logged in only).
-  if (authed) {
-    const wrap = el("div");
-    wrap.append(el("div", "section-label", p.user_note ? "Edit your note" : "Add your note"));
-    const box = el("div", "notebox");
-    const input = el("input");
-    input.maxLength = 500;
-    input.placeholder = "A short note about this card…";
-    input.value = p.user_note || "";
-    const save = el("button", "btn ghost sm", "Save");
-    save.onclick = async () => {
-      try {
-        const d = await api("/api/posts/" + p.id + "/note", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note: input.value }) });
-        toast(d.user_note ? "Note saved" : "Note cleared");
-        refresh();
-      } catch (e) { toast("Failed: " + e.message); }
+  // Follow-up thread: ask the AI a question about this post; it answers with the
+  // post (and the earlier turns) as context.
+  const turns = Array.isArray(p.thread) ? p.thread : [];
+  if (turns.length || authed) {
+    const wrap = el("div", "threadwrap");
+    wrap.append(el("div", "section-label", "Follow-up"));
+    const list = el("div", "thread");
+    const draw = (msgs) => {
+      list.textContent = "";
+      for (const m of msgs) list.append(threadBubble(m));
     };
-    box.append(input, save);
-    wrap.append(box);
+    draw(turns);
+    wrap.append(list);
+
+    if (authed) {
+      const ready = p.status === "ready";
+      const box = el("div", "askbox");
+      const input = el("input");
+      input.maxLength = 500;
+      input.placeholder = ready ? "Ask a follow-up about this post…" : "Wait for the card first…";
+      input.disabled = !ready;
+      const send = el("button", "btn ghost sm", "Ask");
+      send.type = "button";
+      send.disabled = !ready;
+      const submit = async () => {
+        const prompt = input.value.trim();
+        if (!prompt || send.disabled) return;
+        send.disabled = input.disabled = true;
+        draw(turns.concat([
+          { role: "user", text: prompt },
+          { role: "assistant", text: "Thinking…", pending: true },
+        ]));
+        try {
+          const d = await api("/api/posts/" + p.id + "/followup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt }),
+          });
+          p.thread = d.thread;
+          turns.length = 0;
+          turns.push(...d.thread);
+          input.value = "";
+          draw(turns);
+        } catch (e) {
+          draw(turns);
+          toast("Failed: " + e.message);
+        } finally {
+          send.disabled = input.disabled = false;
+          input.focus();
+        }
+      };
+      send.onclick = submit;
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+      });
+      box.append(input, send);
+      wrap.append(box);
+    }
     content.append(wrap);
   }
 

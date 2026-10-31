@@ -295,7 +295,7 @@ function cleanVoter(v) {
 app.get("/api/posts", auth.requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, user_note, tags, source, created_at, updated_at
+      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, thread, tags, source, created_at, updated_at
          FROM posts ORDER BY created_at DESC LIMIT 100`
     );
     const voter = cleanVoter(req.get("x-voter-id"));
@@ -452,21 +452,49 @@ app.post("/api/posts/:id/vote", writeLimiter, auth.requireAuth, async (req, res)
   }
 });
 
-// Poster-authored note (auth-gated): one editable note per card.
-app.post("/api/posts/:id/note", writeLimiter, auth.requireAuth, async (req, res) => {
+// Follow-up thread: ask the AI about a post, and it answers with the post (and
+// the earlier turns) as context. Appended to posts.thread, capped at 40 turns.
+app.post("/api/posts/:id/followup", writeLimiter, auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
-  const note = (req.body && req.body.note ? String(req.body.note) : "").trim();
+  const prompt = (req.body && req.body.prompt ? String(req.body.prompt) : "").trim();
   if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "bad id" });
-  if (note.length > 500) return res.status(400).json({ ok: false, error: "note too long (max 500)" });
+  if (!prompt) return res.status(400).json({ ok: false, error: "prompt is required" });
+  if (prompt.length > 500) return res.status(400).json({ ok: false, error: "prompt too long (max 500)" });
   try {
     const { rows } = await db.query(
-      `UPDATE posts SET user_note = $1, updated_at = now() WHERE id = $2 RETURNING user_note`,
-      [note || null, id]
+      "SELECT id, body, url, card, thread, status FROM posts WHERE id = $1",
+      [id]
     );
-    if (!rows.length) return res.status(404).json({ ok: false, error: "post not found" });
-    res.json({ ok: true, user_note: rows[0].user_note });
+    const post = rows[0];
+    if (!post) return res.status(404).json({ ok: false, error: "post not found" });
+    if (post.status !== "ready") {
+      return res.status(409).json({ ok: false, error: "this post is still being processed" });
+    }
+
+    const thread = Array.isArray(post.thread) ? post.thread : [];
+    const ai = require("./ai");
+    const reply = await ai.continueThread({
+      card: post.card || {},
+      body: post.body,
+      url: post.url,
+      thread,
+      prompt,
+    });
+
+    const at = new Date().toISOString();
+    const next = thread
+      .concat([
+        { role: "user", text: prompt, at },
+        { role: "assistant", text: reply, at },
+      ])
+      .slice(-40);
+    const { rows: saved } = await db.query(
+      "UPDATE posts SET thread = $1, updated_at = now() WHERE id = $2 RETURNING thread",
+      [JSON.stringify(next), id]
+    );
+    res.json({ ok: true, thread: saved[0].thread });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(502).json({ ok: false, error: err.message });
   }
 });
 

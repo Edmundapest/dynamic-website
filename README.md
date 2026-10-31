@@ -51,7 +51,7 @@ demo dashboard now lives at `/dashboard`.
 | `DELETE /api/posts/:id` | **Auth.** Delete a post. |
 | `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | **Auth.** Dashboard stats/probes. |
 | `POST /api/posts/:id/vote` | **Auth.** `{ value: 1\|-1\|0, voter }` — one vote per voter per post. |
-| `POST /api/posts/:id/note` | **Auth.** Poster-authored note for a card. |
+| `POST /api/posts/:id/followup` | **Auth.** `{ prompt }` — the AI answers with the post as context; both turns are appended to `posts.thread`. |
 | `GET /api/push/public-key` · `GET /api/push/status` | **Public.** VAPID key + whether push is configured. |
 | `POST /api/push/subscribe` · `POST /api/push/unsubscribe` | **Auth.** Save/remove a device's push subscription. |
 | `GET/POST/DELETE /api/notes` · `POST /api/seed` · `POST /api/reset` | **Auth.** The dashboard's demo data. |
@@ -102,6 +102,17 @@ npm run backfill:images -- --dry   # report what would change
 npm run backfill:images            # cards that are short or have duplicates
 npm run backfill:images -- --force # rebuild every card's deck
 ```
+
+### Follow-up thread
+
+Under every card there is a **follow-up box**: ask a question and the AI answers
+with the post as context — the card's summary, fun facts, quotes, the original
+note, the source URL and the earlier turns of the same thread. It is told to stay
+concrete, to never invent dates/prices/names, and to name what is missing instead
+of guessing. `POST /api/posts/:id/followup` appends `{ role, text, at }` twice
+(you, then the AI) to `posts.thread`, which is capped at the last 40 turns and
+returned with the feed, so the conversation is part of the card rather than a
+separate feature. Replaces the old single poster note.
 
 ### Feed: votes, tags, sort & collapse
 
