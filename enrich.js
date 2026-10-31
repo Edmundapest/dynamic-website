@@ -6,6 +6,7 @@
 // polls GET /api/posts until the row flips to 'ready' (or 'error').
 const db = require("./db");
 const ai = require("./ai");
+const preferences = require("./profile");
 const { decodeEntities } = require("./search");
 
 // Login walls and server-rendered JSON blobs read as "page text" but tell the
@@ -235,7 +236,12 @@ async function enrichPost(id) {
     }
 
     // Learn from reader thumbs: earlier liked/disliked cards shape this one.
-    const guidance = await buildFeedbackGuidance();
+    // Learn from reader thumbs and from what the wall keeps posting about:
+    // earlier liked/disliked cards shape this one, and the interest profile
+    // steers emphasis (never the facts).
+    const guidance = [await buildFeedbackGuidance(), preferences.summary(await preferences.get())]
+      .filter(Boolean)
+      .join("\n\n");
     const card = await ai.buildCard(context, guidance);
     card.source_url = post.url || null;
     card.source_title = sourceTitle;

@@ -105,15 +105,23 @@ async function buildCard(context, guidance = "") {
 }
 
 const THREAD_PROMPT = `You are continuing the conversation under a card on a private wall.
-The reader asks a follow-up about the post. Answer from the post's information
-below: be concrete and brief (2-4 sentences, under 120 words), in plain text.
-Never invent dates, prices or names — if the post does not contain the answer, say
-what is missing and point at the source or listing to check.
-Do not repeat the card's summary back at the reader.`;
+The reader asks a follow-up about the post. Be concrete and useful, in plain text.
+
+- When the post (or the fresh search results below) already answers it, answer from
+  those: 2-4 sentences, under 120 words, no repetition of the card's summary.
+- When the reader asks for options, more of something, or a specific number of items,
+  enumerate them from the listing pages and search results below: one short line per
+  item with the name plus venue/date/price when stated. Cite each item with the result's
+  number in parentheses, e.g. "Boo! @ GMBB Halloween Weekend (3)", and say how many you
+  actually found. Never paste raw URLs.
+- Never invent a date, price, venue or event. If the results do not cover it, say so
+  and name what to check.
+- Reader preferences may be supplied; use them only to decide what to put first.
+  Never mention the preferences or that a profile exists.`;
 
 // Answers a follow-up prompt about one post, using the card, the original note
 // and the earlier turns of the thread as context.
-async function continueThread({ card, body, url, thread, prompt } = {}) {
+async function continueThread({ card, body, url, thread, prompt, searchResults, searchQuery, pages, profile } = {}) {
   const c = card || {};
   const context = [
     body ? `Posted note: ${body}` : "",
@@ -144,6 +152,35 @@ ${context || "(nothing was captured for this post)"}` },
       content: String(m.text).slice(0, 1500),
     });
   }
+  if (Array.isArray(pages) && pages.length) {
+    const listing = pages
+      .slice(0, 3)
+      .map((p) => `### ${p.title || p.url}\n${p.url}\n${String(p.text || "").slice(0, 2500)}`)
+      .join("\n\n");
+    messages.push({
+      role: "system",
+      content:
+        `Listing pages the post itself points at (verbatim text, may include navigation noise). ` +
+        `These are the best source for actual event names, dates, venues and prices:\n\n${listing}`,
+    });
+  }
+
+  if (profile) messages.push({ role: "system", content: `Reader preferences on this wall: ${profile}` });
+
+  if (Array.isArray(searchResults) && searchResults.length) {
+    const list = searchResults
+      .slice(0, 10)
+      .map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${String(r.snippet || "").slice(0, 220)}`)
+      .join("\n\n");
+    messages.push({
+      role: "system",
+      content:
+        `Fresh web search results for this question (query: "${searchQuery || prompt}"). ` +
+        `Use them for anything the post does not already answer, especially when the reader asks ` +
+        `for more options. Never state an event, date or price that is not in these results.\n\n${list}`,
+    });
+  }
+
   messages.push({ role: "user", content: String(prompt || "").slice(0, 1000) });
 
   const raw = await chat(messages, { temperature: 0.6 });

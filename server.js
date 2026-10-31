@@ -452,6 +452,18 @@ app.post("/api/posts/:id/vote", writeLimiter, auth.requireAuth, async (req, res)
   }
 });
 
+// What the wall has learned about its readers (interests, dislikes, recent
+// questions). Auth-gated: it is derived from private postings.
+app.get("/api/profile", auth.requireAuth, async (_req, res) => {
+  try {
+    const profile = require("./profile");
+    const data = await profile.get();
+    res.json({ ok: true, profile: data, summary: profile.summary(data) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Follow-up thread: ask the AI about a post, and it answers with the post (and
 // the earlier turns) as context. Appended to posts.thread, capped at 40 turns.
 app.post("/api/posts/:id/followup", writeLimiter, auth.requireAuth, async (req, res) => {
@@ -473,19 +485,80 @@ app.post("/api/posts/:id/followup", writeLimiter, auth.requireAuth, async (req, 
 
     const thread = Array.isArray(post.thread) ? post.thread : [];
     const ai = require("./ai");
-    const reply = await ai.continueThread({
+    const prefs = require("./profile");
+    const { webSearch, followupQuery } = require("./search");
+
+    // A follow-up usually asks for something the card does not contain ("find 10
+    // more events"), so search the web for it, keeping the post's topic, and also
+    // read the listing pages the post already points at - those are where the
+    // actual event names and dates are.
+    const query = followupQuery(prompt, post.card || {});
+    const refs = Array.isArray(post.card && post.card.references) ? post.card.references : [];
+    const results = await webSearch(query, 10).catch((err) => {
+      console.warn(`follow-up search failed: ${err.message}`);
+      return [];
+    });
+
+    // Read the pages that actually name events: the ones the post points at,
+    // plus the top search hits (roundups are usually first).
+    const pageUrls = [...new Set([
+      post.url,
+      ...refs.map((r) => (r && r.url) || r),
+      ...results.slice(0, 2).map((r) => r.url),
+    ].filter((u) => typeof u === "string" && /^https?:/i.test(u)))];
+    const { fetchPage } = require("./fetchPage");
+    const pages = (
+      await Promise.all(
+        pageUrls.slice(0, 4).map(async (u) => {
+          try {
+            const page = await fetchPage(u);
+            if (!page || !page.text) return null;
+            return { url: u, title: page.title || u, text: String(page.text).slice(0, 2500) };
+          } catch {
+            return null;
+          }
+        })
+      )
+    ).filter(Boolean);
+
+    const profile = await prefs.get();
+    const answer = await ai.continueThread({
       card: post.card || {},
       body: post.body,
       url: post.url,
       thread,
       prompt,
+      searchResults: results,
+      searchQuery: query,
+      pages,
+      profile: prefs.summary(profile),
     });
+
+    // The reply cites result numbers ("… Halloween Weekend (3)"). Turn those
+    // into named source chips and drop the bare markers from the text.
+    const citedIdx = [];
+    const reply = answer.replace(/\s*\((\d{1,2})\)/g, (match, n) => {
+      const i = Number(n) - 1;
+      if (i < 0 || i >= results.length) return match; // keep "(2026)" and friends
+      if (!citedIdx.includes(i)) citedIdx.push(i);
+      return "";
+    });
+
+    const hostOf = (u) => {
+      try { return new URL(u).hostname.replace(/^www\./i, ""); } catch { return ""; }
+    };
+    const sources = citedIdx
+      .slice(0, 4)
+      .map((i) => ({
+        url: results[i].url,
+        title: String(results[i].title || hostOf(results[i].url)).slice(0, 90),
+      }));
 
     const at = new Date().toISOString();
     const next = thread
       .concat([
         { role: "user", text: prompt, at },
-        { role: "assistant", text: reply, at },
+        { role: "assistant", text: reply, at, ...(sources.length ? { sources } : {}) },
       ])
       .slice(-40);
     const { rows: saved } = await db.query(

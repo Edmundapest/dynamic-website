@@ -186,6 +186,30 @@ async function ddgSearch(query, limit) {
   return [];
 }
 
+// Filler words that carry no topic in a follow-up ("find 10 more events").
+const FILLER = /^(?:find|show|give|list|suggest|tell|me|us|please|can|could|would|you|i|we|any|some|more|new|other|another|else|additional|different|top|about|with|for|and|the|a|an|\d+)$/i;
+
+// A follow-up like "find 10 more events" has no topic of its own: borrow the
+// post's keywords so the search stays about the same thing.
+function followupQuery(prompt, card) {
+  const base = toQuery(prompt);
+  const topic = card && Array.isArray(card.keywords) ? card.keywords.join(" ") : "";
+  const words = `${base} ${topic}`
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .filter((w) => !FILLER.test(w.replace(/[^\p{L}\p{N}]/gu, "")));
+  const seen = new Set();
+  const unique = [];
+  for (const w of words) {
+    const k = w.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(w);
+  }
+  return (unique.join(" ") || base || topic || String(prompt || "")).slice(0, 300);
+}
+
 async function webSearch(query, limit = 6) {
   const raw = String(query || "").trim();
   if (raw.length < 2) return [];
@@ -212,4 +236,4 @@ async function webSearch(query, limit = 6) {
   return ddg;
 }
 
-module.exports = { webSearch, decodeEntities, toQuery };
+module.exports = { webSearch, decodeEntities, toQuery, followupQuery };

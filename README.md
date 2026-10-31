@@ -51,7 +51,8 @@ demo dashboard now lives at `/dashboard`.
 | `DELETE /api/posts/:id` | **Auth.** Delete a post. |
 | `GET /api/stats` · `GET /api/ping` · `GET /api/db-health` | **Auth.** Dashboard stats/probes. |
 | `POST /api/posts/:id/vote` | **Auth.** `{ value: 1\|-1\|0, voter }` — one vote per voter per post. |
-| `POST /api/posts/:id/followup` | **Auth.** `{ prompt }` — the AI answers with the post as context; both turns are appended to `posts.thread`. |
+| `POST /api/posts/:id/followup` | **Auth.** `{ prompt }` — the AI answers with the post as context, search results and listing pages; both turns are appended to `posts.thread`. |
+| `GET /api/profile` | **Auth.** What the wall has learned about its readers (interests, dislikes, recent questions). |
 | `GET /api/push/public-key` · `GET /api/push/status` | **Public.** VAPID key + whether push is configured. |
 | `POST /api/push/subscribe` · `POST /api/push/unsubscribe` | **Auth.** Save/remove a device's push subscription. |
 | `GET/POST/DELETE /api/notes` · `POST /api/seed` · `POST /api/reset` | **Auth.** The dashboard's demo data. |
@@ -113,6 +114,41 @@ of guessing. `POST /api/posts/:id/followup` appends `{ role, text, at }` twice
 (you, then the AI) to `posts.thread`, which is capped at the last 40 turns and
 returned with the feed, so the conversation is part of the card rather than a
 separate feature. Replaces the old single poster note.
+
+A follow-up is not limited to what the card already knows. For every question it
+
+1. runs a web search built from the prompt **plus** the post's keywords, so
+   "find 10 more events" stays about the same topic;
+2. reads up to four pages that actually list things — the post's own source and
+   references (whatsonkl, Eventbrite, the event's site) and the top two search
+   hits — and hands their text to the model;
+3. asks for one line per item with venue/date/price, cited as `(3)` against the
+   search results. Those markers are turned into source chips under the answer,
+   so the card shows exactly which pages the reply came from.
+
+So "Find 10 more events" enumerates real listings with dates and venues, says how
+many it actually found, and admits when prices are not published.
+
+### Preference profile (`profile.js`)
+
+The wall learns from itself — no separate tagging, no onboarding quiz:
+
+| Signal | Weight |
+|---|---|
+| Each AI tag on a post | 1 |
+| Each AI keyword on a post | 0.6 |
+| An up/down vote on a post | ±2 on its tags (±1.2 on keywords) |
+| A follow-up question mentioning a known interest | 1.4 |
+
+Scores decay with a 60-day half-life, so taste drifts with the wall instead of
+being frozen by old posts. Two rules keep it honest: a topic is only marked
+*disliked* with at least two downvoted posts and more down than up (one stray
+thumb never brands a topic), and the profile is rebuilt from `posts`/`post_votes`
+(never stored), so deleting a post deletes its influence. It is cached for 5
+minutes and folded into the system prompt of **both** card generation and
+follow-ups, where it may only decide emphasis and ranking — never facts. Inspect
+it at `GET /api/profile` (auth): top interests with scores, disliked terms and
+the last few questions. Set `PREFERENCES=off` to disable.
 
 ### Feed: votes, tags, sort & collapse
 
@@ -389,6 +425,7 @@ because Meta retires old versions; the endpoint shape is stable.
 | `SEARCH_LOCATION` | no | Appended to local-intent queries ("near me", "this weekend", restaurants…). Default `Kuala Lumpur`. |
 | `SEARCH_REGION` | no | DuckDuckGo fallback region code (default `my-en`). |
 | `SEARCH_LANGUAGE` | no | Language boost for results (default `en`). |
+| `PREFERENCES` | no | Set to `off` to stop the wall steering prompts with its learned interest profile. |
 | `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | no | Override DeepSeek endpoint/model. |
 
 Generate a session secret:
