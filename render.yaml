@@ -20,6 +20,14 @@ services:
         sync: false # DeepSeek API key for AI enrichment
       - key: TAVILY_API_KEY
         sync: false # optional: Tavily search key (reliable web search)
+      - key: SEARCH_COUNTRY
+        value: "malaysia" # Tavily country boost; without it vague queries return US results
+      - key: SEARCH_LOCATION
+        value: "Kuala Lumpur" # appended to local-intent queries ("this weekend", "near me")
+      - key: SEARCH_REGION
+        value: "my-en" # DuckDuckGo fallback region code
+      - key: SEARCH_LANGUAGE
+        value: "en"
       - key: POST_PASSWORD
         sync: false # shared password required to post
       - key: SESSION_SECRET

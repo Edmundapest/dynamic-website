@@ -95,9 +95,12 @@ function decodeEntities(s) {
 function looksLikeJunkImage(u) {
   const s = u.toLowerCase().split("?")[0];
   if (s.endsWith(".svg") || /\.svg[s]?\./.test(s) || /\.svg$/.test(s)) return true;
-  if (/\/\d{1,3}px-/.test(s)) return true; // tiny thumbnails, e.g. /20px-Icon.svg.png
-  if (/\/(logo|logos|wordmark|icon|icons|favicon|sprite|sprites|badge|placeholder|avatar)[/_.-]/.test(s)) return true;
+  if (/\/\d{1,2}px-/.test(s)) return true; // tiny thumbnails (< 100px), e.g. /20px-Icon.svg.png
+  if (/\/(logo|logos|wordmark|icon|icons|favicon|sprite|sprites|badge|placeholder|avatar)[/_ .-]/.test(s)) return true;
   if (/\/static\/images\//.test(s)) return true;
+  // Platform chrome rather than post content. Xiaohongshu serves its logo as the
+  // first og:image, ahead of the note's real photos (sns-webpic-*.xhscdn.com).
+  if (/picasso-static\.|\/fe-platform\//.test(s)) return true;
   return false;
 }
 
@@ -111,9 +114,14 @@ function extract(html, baseUrl) {
   const title =
     meta(html, "og:title") ||
     decodeEntities((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [, ""])[1]).trim();
-  const description = decodeEntities(
-    meta(html, "og:description") || meta(html, "description")
-  );
+  // Social pages ship descriptions multiply-encoded ("&amp;amp;#x2019;"), so
+  // decode until it stops changing (bounded) to get real punctuation.
+  let description = meta(html, "og:description") || meta(html, "description");
+  for (let i = 0; i < 3; i++) {
+    const next = decodeEntities(description);
+    if (next === description) break;
+    description = next;
+  }
 
   // Images: prefer share images (og/twitter), then inline <img>, filtered.
   const rawImages = [];
@@ -129,9 +137,13 @@ function extract(html, baseUrl) {
     ...new Set(
       rawImages
         .map((s) => absolutize(decodeEntities(s)))
-        .filter((u) => u && !looksLikeJunkImage(u))
+        // The page's CSP allows https: images only, and an http: URL on the
+        // card is mixed content anyway. Xiaohongshu serves its photos over
+        // http:// but the same path answers 200 over https://.
+        .map((u) => (u ? u.replace(/^http:/i, "https:") : u))
+        .filter((u) => u && !/^data:/i.test(u) && !looksLikeJunkImage(u))
     ),
-  ].slice(0, 4);
+  ].slice(0, 8); // enough slides for the card carousel
 
   // Links on the page (candidates for card "references").
   const NAV_TITLES = new Set([

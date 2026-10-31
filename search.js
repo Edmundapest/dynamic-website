@@ -7,6 +7,28 @@
 //      (e.g. Render) are challenged intermittently and often return nothing;
 //      works reliably from a residential IP (local dev).
 const TIMEOUT_MS = 10_000;
+
+// Localise results to where the wall's readers actually are. Without these the
+// provider ranks a vague query ("things to do on this weekend") against a
+// US-centric index and you get American listicles. All overridable via .env.
+const COUNTRY = (process.env.SEARCH_COUNTRY || "malaysia").trim().toLowerCase();
+const LANGUAGE = (process.env.SEARCH_LANGUAGE || "en").trim();
+const LOCATION = (process.env.SEARCH_LOCATION || "Kuala Lumpur").trim();
+// DuckDuckGo region code (https://duckduckgo.com/params) — `my-en` = Malaysia/English.
+const REGION = (process.env.SEARCH_REGION || "my-en").trim();
+
+// Queries that only make sense next to a place. For these we also append
+// LOCATION to the query text, because a country boost alone cannot turn a
+// location-free query into a local one.
+const LOCAL_INTENT =
+  /\b(near me|nearby|this weekend|next weekend|weekend|tonight|today|tomorrow|this week|next week|open now|opening hours|happening|events?|things to do|where to|best .* (in|around)|restaurant|cafe|hawker|mamak|mall|clinic|dentist|plumber|gym|salon|barber|petrol|parking|traffic)\b/i;
+
+function withLocation(q) {
+  if (!LOCATION) return q;
+  if (new RegExp(`\\b${LOCATION.split(",")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)) return q;
+  return LOCAL_INTENT.test(q) ? `${q} ${LOCATION}` : q;
+}
+
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -46,6 +68,10 @@ async function tavilySearch(query, limit) {
         search_depth: "basic",
         include_images: true,
         include_answer: false,
+        // `country` is only honoured when topic is `general` (the default).
+        country: COUNTRY,
+        // Boosts matching-language results without dropping the rest.
+        language: LANGUAGE,
       }),
     });
     if (!res.ok) {
@@ -53,15 +79,20 @@ async function tavilySearch(query, limit) {
       return null;
     }
     const d = await res.json();
+    const imageUrl = (i) => (typeof i === "string" ? i : (i && i.url) || "");
     const results = (Array.isArray(d.results) ? d.results : [])
       .map((r) => ({
         title: String(r.title || "").trim(),
         url: String(r.url || ""),
         snippet: String(r.content || "").trim(),
+        // Per-result images feed the card carousel.
+        images: (Array.isArray(r.images) ? r.images : []).map(imageUrl).filter(Boolean),
       }))
       .filter((r) => r.title && /^https?:\/\//i.test(r.url));
-    const images = Array.isArray(d.images) ? d.images.filter((u) => typeof u === "string") : [];
+    const images = Array.isArray(d.images) ? d.images.map(imageUrl).filter(Boolean) : [];
     if (images.length && results.length) results[0].image = images[0];
+    // Top-level image-search results, carried on the array for the carousel.
+    results.images = images;
     return results;
   } catch (err) {
     console.warn("tavily error:", err.message);
@@ -76,7 +107,10 @@ async function ddgFetchHtml(query) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
+    const url =
+      `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}` +
+      (REGION ? `&kl=${encodeURIComponent(REGION)}` : "");
+    const res = await fetch(url, {
       headers: HEADERS,
       signal: controller.signal,
     });
@@ -128,8 +162,9 @@ async function ddgSearch(query, limit) {
 }
 
 async function webSearch(query, limit = 6) {
-  const q = String(query || "").trim();
-  if (q.length < 2) return [];
+  const raw = String(query || "").trim();
+  if (raw.length < 2) return [];
+  const q = withLocation(raw);
   if (process.env.TAVILY_API_KEY) {
     const r = await tavilySearch(q, limit);
     if (r && r.length) return r;

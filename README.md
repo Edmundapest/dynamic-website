@@ -18,7 +18,8 @@ demo dashboard now lives at `/dashboard`.
 | `auth.js` | Shared-password check, signed HttpOnly session cookie, `requireAuth`. |
 | `ai.js` | DeepSeek client (OpenAI-compatible) — builds the card JSON. |
 | `fetchPage.js` | SSRF-safe page fetcher + regex HTML extraction (no deps). |
-| `enrich.js` | Async enrichment worker: fetch → AI → DB update. |
+| `images.js` | Card carousel: gathers/validates candidate photos, caches the expiring ones, resizes with `sharp` when present. |
+| `enrich.js` | Async enrichment worker: fetch → AI → carousel → DB update. |
 | `push.js` | Web Push: VAPID setup, subscription storage, broadcast on new posts. |
 | `whatsapp.js` | WhatsApp Cloud API webhook: signed inbound messages → posts → AI-card replies. |
 | `postUtils.js` | Shared URL detection + tag normalization for web and WhatsApp posts. |
@@ -63,8 +64,37 @@ demo dashboard now lives at `/dashboard`.
 1. `POST /api/posts` inserts a row with `status = 'pending'` and returns immediately.
 2. In the background, `enrich.js` fetches the URL (if any) via `fetchPage.js`
    (SSRF-guarded), then asks DeepSeek for a JSON card.
-3. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
-4. The wall polls `GET /api/posts` and renders pending → ready cards live.
+3. The card gets a **photo carousel of at least five images** (see below).
+4. The row is updated to `status = 'ready'` with the `card` (or `status = 'error'`).
+5. The wall polls `GET /api/posts` and renders pending → ready cards live.
+
+### Card carousel (`images.js`)
+
+Every card carries a swipeable carousel: arrows, dots, a `3 / 5` counter, and a
+click-to-enlarge lightbox (arrow keys and `Esc` work; swiping works on touch).
+Slides come from, in order:
+
+1. the images on the linked page (`og:image` + inline `<img>`),
+2. the images the web search returned (per-result and image-search),
+3. Wikipedia, for text notes,
+4. AI generation (Cloudflare Workers AI) — only to fill a shortfall.
+
+Some of those URLs are short-lived: Instagram's CDN links are signed with an
+`oe=` expiry (~4 days) and Xiaohongshu's photo links 404 within minutes. Those
+are downloaded during enrichment, re-encoded to a ~1024px JPEG with `sharp`
+(optional — if it is missing, only the expiring hosts are stored) and kept in
+`posts.images_data`, then served from `GET /api/posts/:id/img/:idx`. Durable
+hosts (Wikipedia, most blogs) stay as plain URLs. Storing costs roughly
+40-90 KB per slide.
+
+`images_data` is a JSON array of data URIs; `card.images` holds the display URLs,
+so the feed payload stays small. Cards created before carousels existed can be
+topped up in place — existing pictures are kept, only the shortfall is added:
+
+```bash
+npm run backfill:images -- --dry   # report what would change
+npm run backfill:images            # top every ready post up to five slides
+```
 
 ### Feed: votes, tags, sort & collapse
 
@@ -321,6 +351,7 @@ because Meta retires old versions; the endpoint shape is stable.
 | Name | Required | Purpose |
 |---|---|---|
 | `DATABASE_URL` | yes | Neon **pooled** connection string. |
+| `TAVILY_API_KEY` | no | Web search for text notes (1,000 free credits/month, no card). Without it a key-less DuckDuckGo scrape is used, which datacenter hosts often block. |
 | `DEEPSEEK_API_KEY` | yes | DeepSeek key for AI cards (<https://platform.deepseek.com>). |
 | `POST_PASSWORD` | yes | Shared password required to post. |
 | `SESSION_SECRET` | yes | Random string used to sign session cookies. |
@@ -330,6 +361,10 @@ because Meta retires old versions; the endpoint shape is stable.
 | `WHATSAPP_VERIFY_TOKEN` / `WHATSAPP_APP_SECRET` | no | Webhook verification + signature checking. Both are required for the webhook. |
 | `WHATSAPP_ALLOWED_NUMBERS` | no* | Comma-separated E.164 senders allowed to post (*the webhook ignores everyone while empty). |
 | `WHATSAPP_API_VERSION` | no | Graph API version (default `v23.0`). |
+| `SEARCH_COUNTRY` | no | Tavily country boost for search results (default `malaysia`). Without it, a vague query like "things to do this weekend" returns US results. |
+| `SEARCH_LOCATION` | no | Appended to local-intent queries ("near me", "this weekend", restaurants…). Default `Kuala Lumpur`. |
+| `SEARCH_REGION` | no | DuckDuckGo fallback region code (default `my-en`). |
+| `SEARCH_LANGUAGE` | no | Language boost for results (default `en`). |
 | `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | no | Override DeepSeek endpoint/model. |
 
 Generate a session secret:
@@ -373,6 +408,11 @@ npm start                   # http://localhost:3000
   a sleeping service uses none.
 - **No private networking** on free Render services, so the app talks to Neon
   over the public internet — that's why TLS (`sslmode=require`) is required.
+- **Carousel storage adds up.** Photos that must be cached (Instagram,
+  Xiaohongshu) and AI-generated slides live in `posts.images_data` at roughly
+  40-90 KB each — about 0.3 MB per five-slide card. On Neon's 512 MB free tier
+  that is comfortably thousands of posts, but it is not free of cost: delete
+  posts you don't want and the row goes with them.
 
 ## Adding another table
 

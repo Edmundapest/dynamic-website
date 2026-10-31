@@ -332,6 +332,29 @@ app.get("/api/posts/:id/image", auth.requireAuth, async (req, res) => {
   }
 });
 
+// Serves one slide of a card's carousel: images we downloaded because their
+// original URL expires (Instagram, Xiaohongshu) or would be hotlink-blocked.
+app.get("/api/posts/:id/img/:idx", auth.requireAuth, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  const idx = Number.parseInt(req.params.idx, 10);
+  if (!Number.isInteger(id) || !Number.isInteger(idx) || idx < 0 || idx > 63) {
+    return res.status(400).end();
+  }
+  try {
+    const { rows } = await db.query("SELECT images_data FROM posts WHERE id = $1", [id]);
+    const list = rows[0] && Array.isArray(rows[0].images_data) ? rows[0].images_data : [];
+    const m = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(String(list[idx] || ""));
+    if (!m) return res.status(404).end();
+    res.setHeader("Content-Type", m[1]);
+    // Content-addressed by post id + index and never rewritten in place, so it
+    // is safe to cache hard; browsers fall back to a refetch on a new post.
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.end(Buffer.from(m[2], "base64"));
+  } catch {
+    res.status(500).end();
+  }
+});
+
 app.post("/api/posts", writeLimiter, auth.requireAuth, async (req, res) => {
   const body = (req.body && req.body.body ? String(req.body.body) : "").trim();
   let author = (req.body && req.body.author ? String(req.body.author) : "").trim();

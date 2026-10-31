@@ -93,6 +93,42 @@
   .banner { position: relative; height: 150px; display: grid; place-items: center; font-size: 52px;
     background: linear-gradient(135deg, rgba(var(--glow-a),.35), rgba(var(--glow-b),.25)); overflow: hidden; }
   .banner img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+  /* Card carousel: one image per slide, dots + arrows, click to enlarge. */
+  .carousel { position: relative; height: 200px; overflow: hidden;
+    background: linear-gradient(135deg, rgba(var(--glow-a),.35), rgba(var(--glow-b),.25)); touch-action: pan-y; }
+  .carousel .track { display: flex; height: 100%; transition: transform .3s cubic-bezier(.22,.61,.36,1); }
+  .carousel .slide { flex: 0 0 100%; height: 100%; position: relative; cursor: zoom-in; background: rgba(0,0,0,.25); }
+  .carousel .slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .c-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3; width: 32px; height: 32px;
+    border-radius: 50%; border: 1px solid var(--stroke); background: rgba(0,0,0,.5); color: #fff; cursor: pointer;
+    font: inherit; font-size: 18px; line-height: 1; display: grid; place-items: center; opacity: .85; }
+  .c-arrow:hover { background: rgba(0,0,0,.75); opacity: 1; }
+  .c-arrow.prev { left: 8px; }
+  .c-arrow.next { right: 8px; }
+  @media (hover: none) { .c-arrow { width: 38px; height: 38px; font-size: 20px; } }
+  .c-dots { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; gap: 5px; justify-content: center; z-index: 3; }
+  .c-dot { width: 7px; height: 7px; padding: 0; border-radius: 50%; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.75); background: rgba(255,255,255,.28); }
+  .c-dot.on { background: #fff; }
+  .c-count { position: absolute; right: 10px; bottom: 8px; z-index: 3; font-size: 11px; font-weight: 700;
+    color: #fff; background: rgba(0,0,0,.55); border: 1px solid var(--stroke); padding: 2px 7px; border-radius: 999px; }
+  /* Full-screen lightbox */
+  #lightbox { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center;
+    padding: 18px; background: rgba(4,7,15,.93); backdrop-filter: blur(6px); }
+  #lightbox.open { display: flex; }
+  #lightbox .lb-img { width: min(1200px, 94vw); height: 86vh; object-fit: contain;
+    border-radius: 10px; filter: drop-shadow(0 24px 60px rgba(0,0,0,.65)); }
+  #lightbox button { position: absolute; border: 1px solid var(--stroke); background: rgba(0,0,0,.55); color: #fff;
+    cursor: pointer; font: inherit; border-radius: 999px; display: grid; place-items: center; }
+  #lightbox button:hover { background: rgba(0,0,0,.8); }
+  #lightbox .lb-x { top: 14px; right: 14px; width: 40px; height: 40px; font-size: 18px; }
+  #lightbox .lb-nav { top: 50%; transform: translateY(-50%); width: 46px; height: 46px; font-size: 24px; }
+  #lightbox .lb-nav.prev { left: 12px; }
+  #lightbox .lb-nav.next { right: 12px; }
+  #lightbox .lb-count { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    font-size: 12px; font-weight: 700; color: #fff; background: rgba(0,0,0,.55);
+    border: 1px solid var(--stroke); padding: 4px 11px; border-radius: 999px; }
+  body.lbopen { overflow: hidden; }
   .badge { position: absolute; top: 10px; left: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
     background: rgba(0,0,0,.55); border: 1px solid var(--stroke); padding: 4px 8px; border-radius: 999px; }
   .cardbody { padding: 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
@@ -118,8 +154,6 @@
   ul.refs { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
   ul.refs li { font-size: 13px; line-height: 1.4; }
   ul.refs a { word-break: break-word; }
-  .gallery { display: flex; gap: 6px; padding: 10px 14px 0; }
-  .gallery img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--stroke); }
   .votes { display: flex; align-items: center; gap: 6px; }
   .vbtn { border: 1px solid var(--stroke); background: var(--btn-bg); color: var(--text);
     border-radius: 999px; padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
@@ -388,21 +422,188 @@ function el(tag, cls, text) {
   return n;
 }
 
+// ---- Photo carousel + lightbox ----
+const lb = { el: null, img: null, count: null, prev: null, next: null, urls: [], i: 0 };
+
+function ensureLightbox() {
+  if (lb.el) return lb.el;
+  const box = el("div");
+  box.id = "lightbox";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", "Photo viewer");
+  box.setAttribute("aria-hidden", "true");
+  const img = el("img", "lb-img");
+  img.alt = "";
+  const close = el("button", "lb-x", "✕");
+  close.type = "button"; close.setAttribute("aria-label", "Close");
+  const prev = el("button", "lb-nav prev", "‹");
+  prev.type = "button"; prev.setAttribute("aria-label", "Previous photo");
+  const next = el("button", "lb-nav next", "›");
+  next.type = "button"; next.setAttribute("aria-label", "Next photo");
+  const count = el("div", "lb-count");
+  close.onclick = (e) => { e.stopPropagation(); closeLightbox(); };
+  prev.onclick = (e) => { e.stopPropagation(); lbStep(-1); };
+  next.onclick = (e) => { e.stopPropagation(); lbStep(1); };
+  box.onclick = (e) => { if (e.target === box) closeLightbox(); };
+  box.append(img, close, prev, next, count);
+  document.body.append(box);
+  Object.assign(lb, { el: box, img, count, prev, next });
+  return box;
+}
+
+function lbDraw() {
+  if (!lb.urls.length) return closeLightbox();
+  // Very small sources are enlarged for the viewer, but only so far: past ~1.6x
+  // the pixels just get mushy.
+  lb.img.onload = () => {
+    const n = lb.img.naturalWidth || 0;
+    lb.img.style.maxWidth = n ? Math.round(Math.min(n * 1.6, 1400)) + "px" : "";
+  };
+  lb.img.src = lb.urls[lb.i];
+  lb.count.textContent = lb.i + 1 + " / " + lb.urls.length;
+  const one = lb.urls.length < 2;
+  lb.prev.style.display = one ? "none" : "grid";
+  lb.next.style.display = one ? "none" : "grid";
+}
+
+function lbStep(d) {
+  if (lb.urls.length < 2) return;
+  lb.i = (lb.i + d + lb.urls.length) % lb.urls.length;
+  lbDraw();
+}
+
+function lbKeys(e) {
+  if (!lb.el || !lb.el.classList.contains("open")) return;
+  if (e.key === "Escape") { e.preventDefault(); closeLightbox(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); lbStep(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); lbStep(1); }
+}
+
+function openLightbox(urls, i) {
+  if (!urls || !urls.length) return;
+  ensureLightbox();
+  lb.urls = urls.slice();
+  lb.i = Math.max(0, Math.min(i || 0, lb.urls.length - 1));
+  lbDraw();
+  lb.el.classList.add("open");
+  lb.el.setAttribute("aria-hidden", "false");
+  document.body.classList.add("lbopen");
+  document.addEventListener("keydown", lbKeys);
+}
+
+function closeLightbox() {
+  if (!lb.el) return;
+  lb.el.classList.remove("open");
+  lb.el.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("lbopen");
+  document.removeEventListener("keydown", lbKeys);
+}
+
+// Carousel: one photo per slide, arrows + dots + swipe, click to enlarge.
+function makeCarousel(urls) {
+  const wrap = el("div", "carousel");
+  const track = el("div", "track");
+  const dots = el("div", "c-dots");
+  const count = el("div", "c-count");
+  const prev = el("button", "c-arrow prev", "‹");
+  const next = el("button", "c-arrow next", "›");
+  prev.type = next.type = "button";
+  prev.setAttribute("aria-label", "Previous photo");
+  next.setAttribute("aria-label", "Next photo");
+  wrap.append(track, prev, next, dots, count);
+
+  let index = 0;
+  const live = () => Array.from(track.children);
+
+  const draw = () => {
+    const slides = live();
+    if (!slides.length) {
+      // Every source failed to load: leave the gradient with no controls.
+      wrap.classList.add("empty");
+      count.textContent = "";
+      dots.textContent = "";
+      prev.style.display = next.style.display = "none";
+      return;
+    }
+    wrap.classList.remove("empty");
+    index = Math.max(0, Math.min(index, slides.length - 1));
+    track.style.transform = "translateX(" + -index * 100 + "%)";
+    count.textContent = index + 1 + " / " + slides.length;
+    const many = slides.length > 1;
+    prev.style.display = next.style.display = many ? "grid" : "none";
+    dots.textContent = "";
+    if (!many) return;
+    slides.forEach((_, i) => {
+      const d = el("button", "c-dot" + (i === index ? " on" : ""));
+      d.type = "button";
+      d.setAttribute("aria-label", "Photo " + (i + 1));
+      d.onclick = (e) => { e.stopPropagation(); index = i; draw(); };
+      dots.append(d);
+    });
+  };
+
+  const urlsOf = () => live().map((s) => s.dataset.url);
+
+  urls.forEach((u, i) => {
+    const slide = el("div", "slide");
+    slide.dataset.url = u;
+    const img = el("img");
+    img.src = u;
+    img.alt = "";
+    img.decoding = "async";
+    img.loading = i === 0 ? "eager" : "lazy";
+    img.onerror = () => { slide.remove(); draw(); };
+    slide.append(img);
+    slide.onclick = () => {
+      const all = urlsOf();
+      const at = all.indexOf(u);
+      openLightbox(all, at < 0 ? 0 : at);
+    };
+    track.append(slide);
+  });
+
+  prev.onclick = (e) => { e.stopPropagation(); index = Math.max(0, index - 1); draw(); };
+  next.onclick = (e) => {
+    e.stopPropagation();
+    index = Math.min(live().length - 1, index + 1);
+    draw();
+  };
+
+  // Horizontal swipe (vertical scrolling is left alone).
+  let startX = 0, startY = 0, tracking = false;
+  wrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    tracking = true;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  wrap.addEventListener("touchend", (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+    index = Math.max(0, Math.min(live().length - 1, index + (dx < 0 ? 1 : -1)));
+    draw();
+  }, { passive: true });
+
+  // Layout (and % transforms) need the element to be in the document.
+  setTimeout(draw, 0);
+  return wrap;
+}
+
 function makeCard(p) {
   const card = el("div", "card");
   const card_ = p.card || {};
 
-  // Banner: real image if we have one, else an emoji gradient.
-  const banner = el("div", "banner");
-  const firstImage = Array.isArray(card_.images) && card_.images.length ? card_.images[0] : null;
-  if (firstImage) {
-    const img = el("img");
-    img.src = firstImage; img.alt = ""; img.loading = "lazy";
-    img.onerror = () => { img.remove(); banner.textContent = card_.emoji || (p.kind === "link" ? "🔗" : "📝"); };
-    banner.append(img);
-  } else {
-    banner.textContent = card_.emoji || (p.kind === "link" ? "🔗" : "📝");
-  }
+  // Carousel of photos (at least five, when the sources allow it); falls back to
+  // an emoji banner when a card has none.
+  const list = Array.isArray(card_.images) ? card_.images.filter((u) => typeof u === "string" && u) : [];
+  const banner = list.length ? makeCarousel(list) : el("div", "banner");
+  if (!list.length) banner.textContent = card_.emoji || (p.kind === "link" ? "🔗" : "📝");
   banner.append(el("span", "badge", p.kind === "link" ? "link" : "note"));
   if (card_.image_source === "ai") {
     const b = el("span", "badge", "AI image");
@@ -410,17 +611,6 @@ function makeCard(p) {
     banner.append(b);
   }
   card.append(banner);
-
-  // Extra pictures (beyond the banner) as small thumbnails.
-  if (Array.isArray(card_.images) && card_.images.length > 1) {
-    const gal = el("div", "gallery");
-    for (const u of card_.images.slice(1, 4)) {
-      const im = el("img"); im.src = u; im.loading = "lazy"; im.alt = "";
-      im.onerror = () => im.remove();
-      gal.append(im);
-    }
-    if (gal.children.length) card.append(gal);
-  }
 
   const body = el("div", "cardbody");
 

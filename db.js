@@ -73,6 +73,12 @@ async function init() {
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_note TEXT`);
   // Generated card images are stored out-of-band so the feed stays small.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_data TEXT`);
+  // Carousel images we had to download (their source URL expires or refuses
+  // hotlinking), stored as a JSON array of data URIs and served from
+  // /api/posts/:id/img/:idx. Stable third-party URLs stay as URLs.
+  await getPool().query(
+    `ALTER TABLE posts ADD COLUMN IF NOT EXISTS images_data JSONB NOT NULL DEFAULT '[]'::jsonb`
+  );
   // Freeform, poster-supplied tags (lowercased) used for filtering.
   await getPool().query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`);
   // Where the post came from ('web' or 'whatsapp'), the WhatsApp sender, and
