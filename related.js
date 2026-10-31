@@ -47,14 +47,35 @@ async function pageInfo(title, px = 800) {
 
 // True when a query and a matched title share a meaningful word, so we don't
 // pick a wildly unrelated article (e.g. "Alternation of generations").
+// Words that say nothing about the subject. Without this, "whats happening on kl
+// this weekend" matched Wikipedia's "Happening" (Allan Kaprow, 1959) and the
+// card explained performance art instead of what's on in KL.
+const GENERIC = new Set(
+  (
+    "what whats is are was were any anyone anybody some tell show find looking " +
+    "where when how why this that these those the and for with from your you our " +
+    "their its about near around best top good great new latest things thing " +
+    "events event happening happen happening weekend week today tomorrow tonight " +
+    "guide list info news update updates review reviews price prices"
+  ).split(" ")
+);
+
+function words(s) {
+  return String(s)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !GENERIC.has(w));
+}
+
 function overlaps(query, title) {
-  const words = (s) =>
-    String(s)
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length >= 4);
-  const qw = new Set(words(query));
-  return words(title).some((w) => qw.has(w));
+  const qw = words(query);
+  const tw = words(title);
+  if (!qw.length || !tw.length) return false;
+  const shared = tw.filter((w) => qw.includes(w));
+  if (!shared.length) return false;
+  // One shared word is only convincing when the query is that specific —
+  // otherwise "studio ghibli … symphony" matches the article "Studio".
+  return shared.length >= 2 || qw.length <= 2;
 }
 
 // Tries candidate queries and prefers the first relevant result that has an

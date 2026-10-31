@@ -207,13 +207,18 @@ async function enrichPost(id) {
       }
 
       // 2. Wikipedia background (reliable from cloud IPs) for concrete detail.
+      //    Only full phrases are tried: a single common word ("studio",
+      //    "happening") matches a Wikipedia article that has nothing to do with
+      //    the note, which is worse than no background at all.
       try {
         const { findRelated } = require("./related");
         const words = post.body
           .split(/[^\p{L}\p{N}]+/u)
           .filter((w) => w.length >= 4)
           .slice(0, 6);
-        const wiki = await findRelated([post.body.slice(0, 80), ...words]);
+        const queries = [post.body.slice(0, 80)];
+        if (words.length >= 2) queries.push(words.join(" "));
+        const wiki = await findRelated(queries);
         if (wiki) {
           if (wiki.extract) {
             parts.push(`\nBackground (Wikipedia — ${wiki.title}):\n${String(wiki.extract || "").slice(0, 1500)}`);
@@ -267,7 +272,7 @@ async function enrichPost(id) {
         const related = await findRelated([
           card.title,
           (card.keywords || []).join(" "),
-          ...byLen,
+          byLen.join(" "),
           post.body,
         ]);
         if (related) {
@@ -285,6 +290,14 @@ async function enrichPost(id) {
 
     const mapped = displayUrls(id, items);
     card.images = mapped.images;
+    if (mapped.images.length < 5) {
+      // Silent degradation is how a card ends up explaining performance art
+      // instead of KL's weekend: make a thin deck visible in the logs.
+      console.warn(
+        `[carousel] post ${id} ended with ${mapped.images.length} slide(s) ` +
+          `(${imageCandidates.length} candidate url(s) found)`
+      );
+    }
     const source = carousel.source === "none" && mapped.images.length ? "web" : carousel.source;
     if (source === "none") delete card.image_source;
     else card.image_source = source;

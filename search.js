@@ -29,6 +29,31 @@ function withLocation(q) {
   return LOCAL_INTENT.test(q) ? `${q} ${LOCATION}` : q;
 }
 
+// Notes are written as sentences ("whats happening on kl this weekend"), which
+// make poor search queries. Strip the question scaffolding and expand the local
+// shorthand so the provider sees a query, not a question.
+const QUESTION_LEAD =
+  /^(?:hi|hey|so|ok|okay|pls|please)?[\s,]*?(?:what'?s|whats|what is|what are|any|anyone|anybody|some|tell me|show me|find|looking for|where'?s|where is|any idea)\b[\s:,-]*/i;
+
+function toQuery(text) {
+  const original = String(text || "").replace(/\s+/g, " ").trim();
+  let q = original.replace(QUESTION_LEAD, "").replace(/\s+/g, " ").trim();
+  // "happening on / what's on" → "events in", which is what a search engine
+  // expects; the literal rewording scores badly (0 results for "happening on
+  // Kuala Lumpur this weekend").
+  q = q.replace(/^(?:happening|going on|on)\s+(?:in|on|at|around)?\s*/i, "events in ");
+  q = q.replace(/\bkl\b/gi, "Kuala Lumpur");
+  // Drop connectors left behind by the question scaffolding ("on in …").
+  for (let i = 0; i < 3; i++) {
+    const next = q.replace(/^(?:on|in|at|about|for|of|to|from)\s+/i, "");
+    if (next === q) break;
+    q = next;
+  }
+  q = q.replace(/[?!.]+$/g, "").trim();
+  // If stripping gutted the note, keep the original wording.
+  return q.length >= 4 ? q : original;
+}
+
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -164,12 +189,27 @@ async function ddgSearch(query, limit) {
 async function webSearch(query, limit = 6) {
   const raw = String(query || "").trim();
   if (raw.length < 2) return [];
-  const q = withLocation(raw);
   if (process.env.TAVILY_API_KEY) {
-    const r = await tavilySearch(q, limit);
-    if (r && r.length) return r;
+    // Try the cleaned query first, then the note as written: a rewrite must
+    // never be the reason a search comes back empty.
+    const attempts = [...new Set([withLocation(toQuery(raw)), withLocation(raw)])];
+    for (let i = 0; i < attempts.length; i++) {
+      const q = attempts[i];
+      const r = await tavilySearch(q, limit);
+      if (r && r.length) return r;
+      console.warn(`web search returned nothing for "${q}"`);
+      // The provider does occasionally answer 200 with an empty result set;
+      // one short retry recovers that instead of degrading the whole card.
+      if (i === attempts.length - 1) {
+        await new Promise((res) => setTimeout(res, 600));
+        const again = await tavilySearch(q, limit);
+        if (again && again.length) return again;
+      }
+    }
   }
-  return ddgSearch(q, limit);
+  const ddg = await ddgSearch(withLocation(toQuery(raw)), limit);
+  if (!ddg.length) console.warn(`no search results at all for "${raw}"`);
+  return ddg;
 }
 
-module.exports = { webSearch, decodeEntities };
+module.exports = { webSearch, decodeEntities, toQuery };
