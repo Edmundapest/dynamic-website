@@ -369,7 +369,7 @@ app.post("/api/posts", writeLimiter, auth.requireAuth, async (req, res) => {
     const { rows } = await db.query(
       `INSERT INTO posts (author, body, kind, url, status, tags)
        VALUES ($1, $2, $3, $4, 'pending', $5)
-       RETURNING id, author, body, kind, url, status, tags, source, created_at`
+       RETURNING id, author, body, kind, url, status, tags, source, created_at`,
       [author || null, body, kind, url, tags]
     );
     enrich.enqueue(rows[0].id); // fire-and-forget; response returns immediately
