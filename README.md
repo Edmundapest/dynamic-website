@@ -45,7 +45,8 @@ demo dashboard now lives at `/dashboard`.
 | `GET /api/whatsapp/webhook` | Meta's webhook verification challenge (`hub.challenge`). **Public.** |
 | `POST /api/whatsapp/webhook` | Signed inbound WhatsApp messages. Creates posts + replies. **Public, signature-verified.** |
 | `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
-| `GET /api/posts` | **Auth.** The private feed of posts (with their AI cards). |
+| `GET /api/posts` | **Auth.** One page of the feed: `limit, sort, q, tag, month, before` → `{ posts, hasMore, nextBefore, total }`. |
+| `GET /api/facets` | **Auth.** Month counts and tag counts for the whole wall (archive jump + chips). |
 | `POST /api/posts` | **Auth.** Create a post `{ author, body, tags }`; returns `pending`, enriches in the background. |
 | `POST /api/posts/:id/regenerate` | **Auth.** Re-run AI enrichment for a post. |
 | `DELETE /api/posts/:id` | **Auth.** Delete a post. |
@@ -166,15 +167,25 @@ the last few questions. Set `PREFERENCES=off` to disable.
   the same button again clears your vote (`value: 0`); clicking the other one
   switches it. `GET /api/posts` returns your own `my_vote` per post (via the
   `x-voter-id` header) so the UI can show your state.
-- **Search & filter.** The search box filters the feed by free text (body, author,
-  card title/summary) and by `#tag`; clicking a tag chip filters to it.
-- **Sort.** The dropdown sorts the cached feed: Newest, Oldest, Most upvoted,
-  Most downvoted, or Top score (up − down).
+- **Search & filter.** The search box queries the **whole wall** (body, author,
+  card title/summary/fun facts, tags) through SQL; tag chips and the month picker
+  narrow it further. All of it is server-side, so it works on post 400 as well as
+  post 4.
+- **Sort.** Newest, Oldest, Most upvoted, Most downvoted, or Top score (up − down),
+  ordered in SQL with a matching keyset cursor.
+- **Paging.** 24 posts per page. A "Load older posts" button sits at the end of the
+  feed and an IntersectionObserver loads the next page before you reach it.
+- **Archive months.** In time order the feed is split into sticky month sections
+  ("October 2026"), so a long wall reads like an archive instead of an endless
+  scroll, and the month picker jumps straight to a period. `GET /api/facets` backs
+  both the picker and the tag chips (counts over the whole wall).
+- **Layout.** `☰` switches to a compact list (120px carousel, collapsed cards,
+  ~280px per row) for scanning; the choice is remembered per browser.
 - **Collapse.** Each card has an arrow that collapses its body (author row + tags
   + vote bar stay visible). Collapse state is remembered per post while you browse.
 
-Filtering and sorting happen in the browser over the up-to-100 posts the feed
-returns; nothing extra is stored server-side for them.
+The browser never filters or sorts a cached array: `GET /api/posts?sort=&q=&tag=&month=&before=`
+returns one page at a time, which is why nothing gets buried or dropped.
 
 ### Wall UI (social-style)
 

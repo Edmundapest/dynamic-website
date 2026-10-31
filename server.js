@@ -292,28 +292,8 @@ function cleanVoter(v) {
   return /^[A-Za-z0-9_-]+$/.test(s) ? s : null;
 }
 
-app.get("/api/posts", auth.requireAuth, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      `SELECT id, author, body, kind, url, status, card, error, votes_up, votes_down, thread, tags, source, created_at, updated_at
-         FROM posts ORDER BY created_at DESC LIMIT 100`
-    );
-    const voter = cleanVoter(req.get("x-voter-id"));
-    const mine = new Map();
-    if (voter && rows.length) {
-      const ids = rows.map((r) => r.id);
-      const { rows: votes } = await db.query(
-        `SELECT post_id, value FROM post_votes WHERE voter_id = $1 AND post_id = ANY($2)`,
-        [voter, ids]
-      );
-      for (const v of votes) mine.set(v.post_id, v.value);
-    }
-    for (const r of rows) r.my_vote = mine.get(r.id) || 0;
-    res.json({ ok: true, posts: rows });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
+// Feed pages + facets (search, tag, month, sort and keyset paging in SQL).
+require("./feed").register(app, { cleanVoter });
 
 // Serves a stored AI-generated image (kept out of the JSON feed).
 app.get("/api/posts/:id/image", auth.requireAuth, async (req, res) => {

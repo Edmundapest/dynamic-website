@@ -85,7 +85,22 @@
   .locked { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
   /* Feed */
-  .feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 8px; }
+  .feed { display: block; margin-top: 10px; }
+  .monthgroup { margin: 0 0 20px; }
+  .monthgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  /* Archive-style month header: sticks while you scroll through its posts. */
+  .monthsep { position: sticky; top: 52px; z-index: 6; display: inline-block; margin: 0 0 12px;
+    padding: 5px 12px; font-size: 12px; font-weight: 800; letter-spacing: .9px; text-transform: uppercase;
+    color: var(--muted); background: linear-gradient(180deg, rgba(10,14,26,.94), rgba(10,14,26,.72));
+    border: 1px solid var(--stroke); border-radius: 999px; backdrop-filter: blur(10px); }
+  .loadmore { width: 100%; margin: 2px 0 14px; }
+  /* Compact list view: same cards, denser, for scanning a long wall. */
+  .feed.list .monthgrid { grid-template-columns: 1fr; gap: 10px; }
+  .feed.list .carousel { height: 120px; }
+  .feed.list .cardbody { padding: 10px 12px; gap: 7px; }
+  .feed.list .card h3 { font-size: 15.5px; }
+  .feed.list .summary { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .feed.list .actions { padding-top: 6px; }
   @media (max-width: 560px) { .feed { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--stroke); border-radius: 16px; overflow: hidden;
     display: flex; flex-direction: column; animation: pop .3s ease both; }
@@ -263,7 +278,13 @@
     .tagbar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
     .tagbar::-webkit-scrollbar { display: none; }
     .tagchip { flex: 0 0 auto; }
-    .feed { gap: 12px; padding-bottom: 100px; }
+    .feed { padding-bottom: 100px; }
+    .tools { width: 100%; }
+    #monthSel.mini-select { flex: 1 1 90px; }
+    #btnView { flex: 0 0 auto; }
+    .monthgrid { grid-template-columns: 1fr; }
+    .monthsep { top: 48px; font-size: 11px; padding: 4px 10px; }
+    .feed.list .carousel { height: 96px; }
     .cardbody { padding: 12px; gap: 10px; }
     .card h3 { font-size: 16.5px; }
     .summary { font-size: 13.5px; line-height: 1.5; }
@@ -324,8 +345,8 @@
   <div class="panel" id="latestPanel" style="display:none">
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">Feed <span class="hint" id="count"></span></h2>
-      <div class="row" style="gap:8px">
-        <input id="search" class="mini-input" placeholder="Search text or #tag" />
+      <div class="row tools">
+        <input id="search" class="mini-input" placeholder="Search the whole wall" />
         <select id="sortSel" class="mini-select" title="Sort">
           <option value="new">Newest</option>
           <option value="old">Oldest</option>
@@ -333,6 +354,8 @@
           <option value="down">Most downvoted</option>
           <option value="top">Top score</option>
         </select>
+        <select id="monthSel" class="mini-select" title="Jump to a month"></select>
+        <button class="btn ghost sm" id="btnView" title="Switch layout">☰</button>
         <button class="btn ghost sm" id="btnRefresh">Refresh</button>
       </div>
     </div>
@@ -440,7 +463,9 @@ $("btnLogin").onclick = async () => {
     $("password").value = "";
     setAuthed(true);
     toast("Unlocked");
-    refresh();
+    loadFacets();
+    loadFeed({ reset: true });
+    poll();
   } catch (e) { $("loginMsg").textContent = e.message; }
 };
 $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
@@ -473,16 +498,31 @@ $("btnPost").onclick = async () => {
     $("postBody").value = "";
     closeCompose();
     toast("Posted — AI is investigating…");
-    feedCache.unshift(d.post);
-    render(feedCache);
-    refresh();
+    feedState.posts.unshift(d.post);
+    renderFeed();
+    loadFacets();
+    poll();
   } catch (e) { toast("Failed: " + e.message); }
   finally { $("btnPost").disabled = false; }
 };
 $("postBody").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") $("btnPost").click(); });
-$("btnRefresh").onclick = () => { refresh(); toast("Refreshed"); };
-$("sortSel").addEventListener("change", () => { sortMode = $("sortSel").value; applyView(); });
-$("search").addEventListener("input", () => { query = $("search").value; applyView(); });
+$("btnRefresh").onclick = () => { loadFacets(); loadFeed({ reset: true }); toast("Refreshed"); };
+$("sortSel").addEventListener("change", () => {
+  feedState.sort = $("sortSel").value;
+  loadFeed({ reset: true });
+});
+$("monthSel").addEventListener("change", () => {
+  feedState.month = $("monthSel").value;
+  loadFeed({ reset: true });
+});
+$("btnView").onclick = () => setMode(feedState.mode === "list" ? "grid" : "list");
+$("search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    feedState.q = $("search").value.trim();
+    loadFeed({ reset: true });
+  }, 300);
+});
 
 // ---- Card rendering (all text via textContent — no HTML injection) ----
 function el(tag, cls, text) {
@@ -735,8 +775,9 @@ function makeCard(p) {
       const chip = el("button", "tagchip", "#" + t);
       chip.type = "button";
       chip.onclick = () => {
-        activeTag = t; query = ""; $("search").value = "";
-        renderTagBar(); applyView();
+        $("search").value = "";
+        feedState.q = "";
+        setTag(t);
       };
       row.append(chip);
     }
@@ -883,7 +924,7 @@ function makeCard(p) {
       up.textContent = "👍 " + d.votes_up; down.textContent = "👎 " + d.votes_down;
       up.classList.toggle("on", d.my_vote === 1);
       down.classList.toggle("on", d.my_vote === -1);
-      if (sortMode === "up" || sortMode === "down" || sortMode === "top") applyView();
+      if (feedState.sort !== "new" && feedState.sort !== "old") loadFeed({ reset: true });
     } catch (e) { toast("Failed: " + e.message); }
     finally { up.disabled = down.disabled = false; }
   };
@@ -895,13 +936,20 @@ function makeCard(p) {
     const regen = el("button", "btn ghost sm", "↻ Regenerate");
     regen.onclick = async () => {
       regen.disabled = true;
-      try { await api("/api/posts/" + p.id + "/regenerate", { method: "POST" }); toast("Regenerating…"); refresh(); }
+      try { await api("/api/posts/" + p.id + "/regenerate", { method: "POST" }); toast("Regenerating…"); poll(); }
       catch (e) { toast("Failed: " + e.message); regen.disabled = false; }
     };
     const del = el("button", "btn danger sm", "Delete");
     del.onclick = async () => {
       if (!confirm("Delete this post?")) return;
-      try { await api("/api/posts/" + p.id, { method: "DELETE" }); toast("Deleted"); refresh(); }
+      try {
+        await api("/api/posts/" + p.id, { method: "DELETE" });
+        toast("Deleted");
+        feedState.posts = feedState.posts.filter((x) => x.id !== p.id);
+        feedState.total = Math.max(0, feedState.total - 1);
+        renderFeed();
+        loadFacets();
+      }
       catch (e) { toast("Failed: " + e.message); }
     };
     actions.append(regen, del);
@@ -912,15 +960,33 @@ function makeCard(p) {
   return card;
 }
 
-// ---- Feed: sort + filter (client-side over the cached feed) ----
-let feedCache = [];
-let sortMode = "new";
-let activeTag = null;
-let query = "";
-const collapsed = new Set();
-const expandedByUser = new Set(); // phones start collapsed; respect what you open
+// ---- Feed: server-side paging, search, sort, tag + month filters ----
+//
+// The wall is meant to stay readable as it fills up: SQL does the filtering and
+// ordering over every post, a keyset cursor brings the next page, and the feed is
+// split into month sections so older posts have a place to live instead of being
+// buried under an endless scroll.
+const VIEW_KEY = "wall_view_mode";
+const feedState = {
+  sort: "new",
+  q: "",
+  tag: null,
+  month: "",
+  mode: localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid",
+  posts: [],
+  cursor: null,
+  hasMore: true,
+  loading: false,
+  total: 0,
+  facets: { months: [], tags: [], total: 0 },
+};
+let pollTimer = null;
+let searchTimer = null;
+let feedObserver = null;
 
-// Phone-width layout: triggers the dense CSS and the collapsed-by-default feed.
+// Cards start collapsed on phones; whatever the reader opens stays open.
+const collapsed = new Set();
+const expandedByUser = new Set();
 function isCompact() {
   try {
     return window.matchMedia("(max-width: 560px)").matches;
@@ -929,83 +995,234 @@ function isCompact() {
   }
 }
 
+const monthKey = (iso) => String(iso || "").slice(0, 7); // posts store UTC ISO strings
+function monthLabel(key) {
+  const [y, m] = String(key).split("-").map(Number);
+  if (!y || !m) return key;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function feedQuery({ withCursor = true } = {}) {
+  const params = new URLSearchParams({ limit: "24", sort: feedState.sort });
+  if (feedState.q) params.set("q", feedState.q);
+  if (feedState.tag) params.set("tag", feedState.tag);
+  if (feedState.month) params.set("month", feedState.month);
+  if (withCursor && feedState.cursor) params.set("before", feedState.cursor);
+  return params.toString();
+}
+
+async function loadFeed({ reset = false } = {}) {
+  if (feedState.loading) return;
+  if (reset) {
+    feedState.posts = [];
+    feedState.cursor = null;
+    feedState.hasMore = true;
+  }
+  if (!feedState.hasMore && !reset) return;
+  feedState.loading = true;
+  $("btnMore") && ($("btnMore").disabled = true);
+  try {
+    const d = await api("/api/posts?" + feedQuery({ withCursor: !reset }), {
+      headers: { "x-voter-id": VOTER },
+    });
+    feedState.posts = reset ? d.posts : feedState.posts.concat(d.posts);
+    feedState.cursor = d.nextBefore || null;
+    feedState.hasMore = !!d.hasMore;
+    feedState.total = d.total || feedState.posts.length;
+    $("liveDot").classList.add("on");
+    $("liveText").textContent = "live";
+    renderFeed();
+  } catch (e) {
+    if (e.status === 401) return setAuthed(false);
+    $("liveDot").classList.remove("on");
+    $("liveText").textContent = "offline";
+    toast("Could not load the feed");
+  } finally {
+    feedState.loading = false;
+  }
+}
+
+async function loadFacets() {
+  try {
+    const d = await api("/api/facets");
+    feedState.facets = { months: d.months || [], tags: d.tags || [], total: d.total || 0 };
+    renderTagBar();
+    renderMonthPicker();
+  } catch {
+    /* facets are a nicety: the feed still works without them */
+  }
+}
+
 function renderTagBar() {
-  const counts = new Map();
-  for (const p of feedCache) for (const t of (p.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
   const bar = $("tagbar");
   bar.textContent = "";
-  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  for (const [t, c] of entries) {
-    const chip = el("button", "tagchip" + (activeTag === t ? " on" : ""), "#" + t + " " + c);
+  const tags = feedState.facets.tags || [];
+  if (!tags.length) return;
+  const all = el("button", "tagchip" + (feedState.tag ? "" : " on"), "All " + (feedState.facets.total || ""));
+  all.type = "button";
+  all.onclick = () => setTag(null);
+  bar.append(all);
+  for (const { tag, count } of tags) {
+    const chip = el("button", "tagchip" + (feedState.tag === tag ? " on" : ""), "#" + tag + " " + count);
     chip.type = "button";
-    chip.onclick = () => { activeTag = activeTag === t ? null : t; renderTagBar(); applyView(); };
+    chip.onclick = () => setTag(feedState.tag === tag ? null : tag);
     bar.append(chip);
   }
+  // Keep the active chip in view on a phone-width scroller.
+  const active = bar.querySelector(".tagchip.on");
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest", inline: "center" });
 }
 
-function applyView() {
-  let list = feedCache.slice();
-  if (activeTag) list = list.filter((p) => (p.tags || []).includes(activeTag));
-  const q = query.trim().toLowerCase();
-  if (q) {
-    list = list.filter((p) => {
-      const c = p.card || {};
-      const hay = [p.body, p.author, c.title, c.summary, (p.tags || []).join(" ")]
-        .filter(Boolean).join(" ").toLowerCase();
-      return hay.includes(q);
-    });
+function renderMonthPicker() {
+  const sel = $("monthSel");
+  if (!sel) return;
+  sel.textContent = "";
+  const any = el("option", null, "All months");
+  any.value = "";
+  sel.append(any);
+  for (const m of feedState.facets.months || []) {
+    const o = el("option", null, monthLabel(m.key) + " (" + m.count + ")");
+    o.value = m.key;
+    sel.append(o);
   }
-  const score = (p) => (p.votes_up || 0) - (p.votes_down || 0);
-  const time = (p) => new Date(p.created_at).getTime();
-  const cmp = {
-    new: (a, b) => time(b) - time(a),
-    old: (a, b) => time(a) - time(b),
-    up: (a, b) => (b.votes_up || 0) - (a.votes_up || 0),
-    down: (a, b) => (b.votes_down || 0) - (a.votes_down || 0),
-    top: (a, b) => score(b) - score(a) || time(b) - time(a),
-  }[sortMode];
-  if (cmp) list.sort(cmp);
+  sel.value = feedState.month;
+}
 
+function setTag(tag) {
+  feedState.tag = tag;
+  renderTagBar();
+  loadFeed({ reset: true });
+}
+
+// Cards are grouped into month sections in time order, so a long wall reads like
+// an archive rather than one undifferentiated list.
+function renderFeed() {
   const feed = $("feed");
-  const filtering = activeTag || query.trim();
-  const total = feedCache.length;
-  $("count").textContent = total
-    ? "· " + (filtering && list.length !== total ? list.length + " of " + total : total + " post" + (total === 1 ? "" : "s"))
-    : "";
+  feed.className = "feed" + (feedState.mode === "list" ? " list" : "");
   feed.textContent = "";
-  if (!list.length) {
-    feed.append(el("div", "empty", filtering ? "Nothing matches this filter." : "No posts yet. Tap ✍️ to add the first one."));
+  const filtering = !!(feedState.q || feedState.tag || feedState.month);
+  const shown = feedState.posts.length;
+  $("count").textContent = feedState.total
+    ? "· " + (filtering ? shown + " of " + feedState.total : feedState.total) + " post" + (feedState.total === 1 ? "" : "s")
+    : "";
+
+  if (!shown) {
+    feed.append(
+      el(
+        "div",
+        "empty",
+        filtering
+          ? "Nothing matches this filter."
+          : "No posts yet. Tap ✍️ to add the first one."
+      )
+    );
     return;
   }
-  for (const p of list) feed.append(makeCard(p));
-}
 
-function render(posts) {
-  feedCache = posts || [];
-  // A phone screen fits about one open card; start collapsed so the feed stays
-  // scannable, but never re-collapse something the reader opened.
-  if (isCompact()) {
-    for (const p of feedCache) if (!expandedByUser.has(p.id)) collapsed.add(p.id);
+  if (isCompact() || feedState.mode === "list") {
+    for (const p of feedState.posts) if (!expandedByUser.has(p.id)) collapsed.add(p.id);
   }
-  renderTagBar();
-  applyView();
+
+  // Grouping only makes sense when the order is chronological.
+  const grouped = feedState.sort === "new" || feedState.sort === "old";
+  let grid = null;
+  let current = null;
+  for (const p of feedState.posts) {
+    const key = monthKey(p.created_at);
+    if (grouped && key !== current) {
+      current = key;
+      const section = el("section", "monthgroup");
+      const head = el("h3", "monthsep", monthLabel(key));
+      section.append(head);
+      grid = el("div", "monthgrid");
+      section.append(grid);
+      feed.append(section);
+    } else if (!grid) {
+      grid = el("div", "monthgrid");
+      feed.append(grid);
+    }
+    grid.append(makeCard(p));
+  }
+
+  // Paging: a button that always works, plus auto-load when it scrolls into view.
+  const more = el("button", "btn ghost loadmore", feedState.hasMore ? "Load older posts" : "That's the whole wall");
+  more.id = "btnMore";
+  more.type = "button";
+  more.disabled = !feedState.hasMore;
+  more.onclick = () => loadFeed();
+  feed.append(more);
+  observeMore(more);
 }
 
-async function refresh() {
+function observeMore(button) {
+  if (feedObserver) feedObserver.disconnect();
+  if (!button || !feedState.hasMore || !("IntersectionObserver" in window)) return;
+  feedObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting) && feedState.hasMore && !feedState.loading) {
+        loadFeed();
+      }
+    },
+    { rootMargin: "400px 0px" }
+  );
+  feedObserver.observe(button);
+}
+
+function setMode(mode) {
+  feedState.mode = mode === "list" ? "list" : "grid";
   try {
-    const d = await api("/api/posts", { headers: { "x-voter-id": VOTER } });
-    $("liveDot").classList.add("on"); $("liveText").textContent = "live";
-    render(d.posts);
-    // Poll faster while anything is still being enriched.
-    const anyPending = d.posts.some((p) => p.status === "pending");
-    clearTimeout(polling);
-    polling = setTimeout(refresh, anyPending ? 3000 : 8000);
+    localStorage.setItem(VIEW_KEY, feedState.mode);
+  } catch {}
+  const btn = $("btnView");
+  if (btn) {
+    btn.textContent = feedState.mode === "list" ? "▦" : "☰";
+    btn.title = feedState.mode === "list" ? "Switch to grid" : "Switch to compact list";
+  }
+  renderFeed();
+}
+
+// Live updates: refetch the first page and fold it into what is already shown, so
+// pending cards turn ready and new posts appear without losing the reader's place.
+function mergeFirstPage(fresh) {
+  const known = new Map(feedState.posts.map((p) => [p.id, p]));
+  const incoming = fresh.filter((p) => !known.has(p.id));
+  let changed = incoming.length > 0;
+  for (const p of fresh) {
+    const cur = known.get(p.id);
+    if (!cur) continue;
+    if (cur.status !== p.status || cur.updated_at !== p.updated_at || cur.votes_up !== p.votes_up || cur.votes_down !== p.votes_down) {
+      Object.assign(cur, p);
+      changed = true;
+    }
+  }
+  if (incoming.length) feedState.posts = incoming.concat(feedState.posts);
+  if (changed) renderFeed();
+}
+
+async function poll() {
+  try {
+    const quiet = feedState.sort === "new" && !feedState.q && !feedState.tag && !feedState.month;
+    if (quiet) {
+      const want = Math.min(Math.max(feedState.posts.length, 24), 48);
+      const d = await api("/api/posts?limit=" + want, { headers: { "x-voter-id": VOTER } });
+      mergeFirstPage(d.posts);
+      feedState.total = d.total || feedState.total;
+    }
+    $("liveDot").classList.add("on");
+    $("liveText").textContent = "live";
+    const pending = feedState.posts.some((p) => p.status === "pending");
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(poll, pending ? 3000 : 15000);
   } catch (e) {
-    // 401 => not logged in: show the gate and stop polling.
-    if (e.status === 401) { setAuthed(false); return; }
-    $("liveDot").classList.remove("on"); $("liveText").textContent = "offline";
-    clearTimeout(polling);
-    polling = setTimeout(refresh, 8000);
+    if (e.status === 401) return setAuthed(false);
+    $("liveDot").classList.remove("on");
+    $("liveText").textContent = "offline";
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(poll, 8000);
   }
 }
 
@@ -1131,7 +1348,14 @@ async function initPush() {
   setPushUI(sub && Notification.permission === "granted" ? "on" : "off");
 }
 
-checkSession().then(refresh);
+setMode(feedState.mode);
+$("sortSel").value = feedState.sort;
+checkSession().then(() => {
+  if (!authed) return;
+  loadFacets();
+  loadFeed({ reset: true });
+  poll();
+});
 initPush();
 </script>
 </body>
