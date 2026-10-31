@@ -295,6 +295,9 @@ function cleanVoter(v) {
 // Feed pages + facets (search, tag, month, sort and keyset paging in SQL).
 require("./feed").register(app, { cleanVoter });
 
+// Seasonal themes for Malaysian celebrations (/api/season, /season.js).
+require("./season").register(app);
+
 // Serves a stored AI-generated image (kept out of the JSON feed).
 app.get("/api/posts/:id/image", auth.requireAuth, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);

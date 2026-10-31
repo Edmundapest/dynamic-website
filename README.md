@@ -42,6 +42,7 @@ demo dashboard now lives at `/dashboard`.
 | `GET /dashboard` | The DB dashboard (stats, latency meter, notes demo). Data requires login. |
 | `GET /healthz` | Liveness probe (no DB). Used by Render + the keep-warm cron. **Public.** |
 | `GET /api/wallpaper` | Today's Bing wallpaper URL + title/credit. Cached 30 min. **Public.** |
+| `GET /api/season` · `GET /season.js` | Active celebration theme (Kuala Lumpur date), next one up. **Public** — the login page is themed too. |
 | `GET /api/whatsapp/webhook` | Meta's webhook verification challenge (`hub.challenge`). **Public.** |
 | `POST /api/whatsapp/webhook` | Signed inbound WhatsApp messages. Creates posts + replies. **Public, signature-verified.** |
 | `POST /api/login` · `POST /api/logout` · `GET /api/session` | Shared-password auth. **Public** (login is rate-limited). |
@@ -228,6 +229,48 @@ password and no user accounts, so each visitor's choice is stored in
 colors as CSS custom properties on `<html>` (overriding each page's `:root`), and
 injects the picker UI. It's loaded in `<head>` so there's no flash of the default
 theme. See `window.WallTheme` in the console for the theme list and a `set()` API.
+
+### Seasonal themes (Malaysian celebrations)
+
+The wall dresses itself for the occasions Malaysia actually celebrates — and
+everyone sees the same thing, because the decision is made on the server:
+
+| Season | Window (Kuala Lumpur time) |
+|---|---|
+| 🎉 New Year | 30 Dec – 2 Jan |
+| 🪔 Thaipusam | 30 Jan – 3 Feb |
+| 🧧 Chinese New Year | 14–21 Feb 2026 · 4–10 Feb 2027 |
+| 🌙 Hari Raya Aidilfitri | 18–25 Mar 2026 · 7–14 Mar 2027 |
+| 🕌 Hari Raya Haji | 25–29 May 2026 · 15–19 May 2027 |
+| 🪷 Wesak Day | 29 May – 2 Jun 2026 · 18–22 May 2027 |
+| 🌾 Kaamatan · 🏵️ Gawai | late May – early Jun |
+| 🌙 Awal Muharram | 15–18 Jun 2026 · 4–8 Jun 2027 |
+| 🇲🇾 Merdeka · Malaysia Day | 28 Aug – 1 Sep · 13–17 Sep |
+| 🕌 Maulidur Rasul | 23–27 Aug 2026 · 13–17 Aug 2027 |
+| 🥮 Mid-Autumn | 23–27 Sep 2026 · 13–17 Sep 2027 |
+| 🎃 Halloween | 24 Oct – 2 Nov |
+| 🪔 Deepavali | 6–10 Nov 2026 · 26–30 Oct 2027 |
+| 🎄 Christmas | 22–27 Dec |
+
+`season.js` holds the calendar and the windows; the dates are the gazetted
+holidays for 2026–2027, and lunar/Islamic ones can shift a day with the sighting.
+Windows open a few days early and linger a day or two, because a theme that
+appears only on the exact date is easy to miss. Overlaps (Wesak vs Kaamatan vs
+Gawai) resolve by priority, national holidays first.
+
+- `GET /season.js` is a blocking script in `<head>` that sets `window.__SEASON`
+  **before first paint**, so there is no flash of the default theme, and the login
+  page is themed too. `GET /api/season` returns the same JSON.
+- The seasonal theme sits **on top of** each reader's own choice, adds a matching
+  emoji in the header (`🧱` → `🎃`), sets `data-season` on `<html>` for CSS hooks,
+  and retints the favicon/PWA icon.
+- It is opt-out, not forced: the theme panel shows "🎃 Halloween theme · seasonal
+  until 2 Nov · next up: 🪔 Deepavali" with a checkbox, and picking any theme by
+  hand turns the season off for that browser. `localStorage` key:
+  `wall_season_off_v1`.
+- A tab left open checks again hourly, so the wall flips at the boundary without
+  a reload. To add next year, append windows to `season.js` — nothing else changes.
+- Testing without waiting a year: `SEASON_TODAY=2026-02-17 npm start`.
 
 ### Daily wallpaper
 
@@ -439,6 +482,7 @@ because Meta retires old versions; the endpoint shape is stable.
 | `SEARCH_REGION` | no | DuckDuckGo fallback region code (default `my-en`). |
 | `SEARCH_LANGUAGE` | no | Language boost for results (default `en`). |
 | `PREFERENCES` | no | Set to `off` to stop the wall steering prompts with its learned interest profile. |
+| `SEASON_TODAY` | no | Test hook: pretend today is this `YYYY-MM-DD` when picking the seasonal theme. |
 | `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | no | Override DeepSeek endpoint/model. |
 
 Generate a session secret:

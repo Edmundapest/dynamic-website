@@ -16,6 +16,65 @@
   var KEY = "wall_theme_v1";
   var root = document.documentElement;
 
+  // --- seasonal presets -----------------------------------------------------
+  // Applied on top of the reader's choice while a celebration is on (see
+  // /season.js, computed by the server in Kuala Lumpur time). Picking a theme by
+  // hand turns seasons off, so the wall never fights the reader.
+  var SEASONAL = {
+    "halloween":    { dark: true, bg: "#150a1e", bg2: "#241033", accent: "#ff7a18", accent2: "#a855f7" },
+    "new-year":     { dark: true, bg: "#0b0a16", bg2: "#14122a", accent: "#ffd166", accent2: "#6c8cff" },
+    "cny":          { dark: true, bg: "#1a0808", bg2: "#2a0f10", accent: "#ef4444", accent2: "#ffd166" },
+    "thaipusam":    { dark: true, bg: "#1a1108", bg2: "#2b1c0c", accent: "#fbbf24", accent2: "#fb923c" },
+    "raya":         { dark: true, bg: "#04160f", bg2: "#072a1a", accent: "#22c55e", accent2: "#fbbf24" },
+    "haji":         { dark: true, bg: "#06140c", bg2: "#0a2416", accent: "#16a34a", accent2: "#eab308" },
+    "wesak":        { dark: true, bg: "#171206", bg2: "#261d0a", accent: "#facc15", accent2: "#f97316" },
+    "kaamatan":     { dark: true, bg: "#04120f", bg2: "#07211b", accent: "#34d399", accent2: "#fbbf24" },
+    "gawai":        { dark: true, bg: "#140b04", bg2: "#24140a", accent: "#f59e0b", accent2: "#a3e635" },
+    "muharram":     { dark: true, bg: "#08131a", bg2: "#0c2130", accent: "#38bdf8", accent2: "#a3e635" },
+    "merdeka":      { dark: true, bg: "#0a1020", bg2: "#111a33", accent: "#fbbf24", accent2: "#ef4444" },
+    "maulidur":     { dark: true, bg: "#07160f", bg2: "#0b2418", accent: "#34d399", accent2: "#fbbf24" },
+    "malaysia-day": { dark: true, bg: "#0a1020", bg2: "#111a33", accent: "#ef4444", accent2: "#38bdf8" },
+    "mid-autumn":   { dark: true, bg: "#14101f", bg2: "#211a33", accent: "#fbbf24", accent2: "#f472b6" },
+    "deepavali":    { dark: true, bg: "#1a0f04", bg2: "#2b1a08", accent: "#f59e0b", accent2: "#f43f5e" },
+    "christmas":    { dark: true, bg: "#07160f", bg2: "#0b2418", accent: "#ef4444", accent2: "#34d399" }
+  };
+  var SEASON_KEY = "wall_season_off_v1";
+  var season = (typeof window !== "undefined" && window.__SEASON) || null;
+
+  function seasonEnabled() {
+    try { return localStorage.getItem(SEASON_KEY) !== "1"; } catch (e) { return true; }
+  }
+  function setSeasonEnabled(on) {
+    try { on ? localStorage.removeItem(SEASON_KEY) : localStorage.setItem(SEASON_KEY, "1"); } catch (e) {}
+    apply();
+    if (window.WallTheme && window.WallTheme.onSeasonChange) window.WallTheme.onSeasonChange();
+  }
+  function refreshSeason() {
+    try {
+      fetch("/api/season", { cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok) return;
+          var before = season && season.active ? season.active.id : null;
+          var after = d.active ? d.active.id : null;
+          season = d;
+          if (before !== after) {
+            apply();
+            if (window.WallTheme && window.WallTheme.refreshPanel) window.WallTheme.refreshPanel();
+          }
+        })
+        .catch(function () {});
+    } catch (e) {}
+  }
+  // Hourly: cheap, and a season boundary is at most a day away.
+  setTimeout(refreshSeason, 60 * 60 * 1000);
+
+  function seasonTheme() {
+    if (!season || !season.active || !seasonEnabled()) return null;
+    var t = SEASONAL[season.active.theme];
+    return t ? t : null;
+  }
+
   // --- color helpers -------------------------------------------------------
   function hexToRgb(hex) {
     var h = String(hex || "#000").replace("#", "");
@@ -150,10 +209,37 @@
     return presetById(state.id);
   }
   function apply() {
-    var t = currentTheme();
+    var seasonal = seasonTheme();
+    var t = seasonal || currentTheme();
     applyVars(buildVars(t));
     updateIconLinks(t);
     applyWallpaper();
+    markSeason(!!seasonal);
+  }
+
+  // Season marker for CSS hooks + a seasonal emoji in the header logo.
+  function markSeason(on) {
+    if (!season || !season.active) {
+      root.removeAttribute("data-season");
+      setLogo(LOGO_DEFAULT);
+      return;
+    }
+    if (on) {
+      root.setAttribute("data-season", season.active.id);
+      setLogo(season.active.emoji);
+      root.setAttribute("data-season-name", season.active.name);
+    } else {
+      root.removeAttribute("data-season");
+      root.removeAttribute("data-season-name");
+      setLogo(LOGO_DEFAULT);
+    }
+  }
+  var LOGO_DEFAULT = "🧱";
+  function setLogo(text) {
+    var logo = document.querySelector(".logo");
+    if (!logo) return;
+    if (logo.textContent !== text) logo.textContent = text;
+    logo.title = season && season.active && seasonEnabled() ? season.active.name : "The Wall";
   }
 
   // --- daily Bing wallpaper ------------------------------------------------
@@ -283,6 +369,10 @@
       ".wt-sw.active{border-color:var(--accent)}",
       ".wt-chip{width:26px;height:18px;border-radius:6px;flex:none;border:1px solid var(--stroke);overflow:hidden;display:block}",
       ".wt-chip i{display:block;height:100%;width:100%;background:linear-gradient(135deg,var(--a),var(--b))}",
+      "#wt-season{margin-bottom:12px;padding:10px;border-radius:10px;border:1px dashed var(--stroke);",
+      "background:rgba(108,140,255,.08)}",
+      "#wt-season label{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;cursor:pointer}",
+      "#wt-season .wt-credit{color:var(--muted);font-size:11.5px;margin-top:6px;line-height:1.45}",
       "#wt-custom{margin-top:14px;border-top:1px solid var(--stroke);padding-top:12px}",
       "#wt-custom .wt-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0;font-size:12.5px}",
       "#wt-custom input[type=color]{width:44px;height:28px;padding:0;border:1px solid var(--stroke);border-radius:8px;background:none;cursor:pointer}",
@@ -308,6 +398,47 @@
     panel.appendChild(el("h3", null, "Theme"));
     panel.appendChild(el("p", null, "Saved on this device only.")).className = "wt-hint";
 
+    // Seasonal theme (Malaysian celebrations). On by default while one is live.
+    var seasonBox = el("div");
+    seasonBox.id = "wt-season";
+    var seasonLabel = el("label");
+    var seasonCb = document.createElement("input");
+    seasonCb.type = "checkbox";
+    seasonCb.checked = seasonEnabled();
+    seasonLabel.appendChild(seasonCb);
+    var seasonText = el("span");
+    seasonLabel.appendChild(seasonText);
+    seasonBox.appendChild(seasonLabel);
+    var seasonHint = el("div", "wt-credit");
+    seasonBox.appendChild(seasonHint);
+
+    function shortDay(iso) {
+      try {
+        return new Date(iso + "T12:00:00Z").toLocaleDateString(undefined, {
+          day: "numeric", month: "short", timeZone: "UTC"
+        });
+      } catch (e) { return iso; }
+    }
+    function renderSeason() {
+      var on = !!(season && season.active);
+      seasonBox.style.display = on ? "" : "none";
+      if (!on) return;
+      seasonText.textContent = season.active.emoji + " " + season.active.name + " theme";
+      seasonHint.textContent =
+        "Seasonal until " + shortDay(season.active.to) + ". Picking a theme below turns this off." +
+        (season.next ? " Next up: " + season.next.emoji + " " + season.next.name + "." : "");
+    }
+    seasonCb.onchange = function () {
+      setSeasonEnabled(seasonCb.checked);
+      markActive();
+    };
+    window.WallTheme = window.WallTheme || {};
+    window.WallTheme.refreshPanel = function () {
+      seasonCb.checked = seasonEnabled();
+      markActive();
+    };
+    panel.appendChild(seasonBox);
+
     var grid = el("div");
     grid.id = "wt-grid";
     THEMES.forEach(function (t) {
@@ -324,7 +455,11 @@
       b.appendChild(el("span", null, t.name));
       b.onclick = function () {
         state = { type: "preset", id: t.id };
-        save(); apply(); markActive();
+        save();
+        setSeasonEnabled(false); // an explicit pick wins over the season
+        seasonCb.checked = false;
+        apply();
+        markActive();
       };
       grid.appendChild(b);
     });
@@ -351,7 +486,11 @@
         accent2: state.accent2 || "#22d3ee",
         bg: state.bg || "#0a0e1a"
       };
-      save(); apply(); markActive();
+      save();
+      setSeasonEnabled(false);
+      seasonCb.checked = false;
+      apply();
+      markActive();
     }
     // Seed the pickers from the current theme so edits start from it.
     state.accent = cur.accent; state.accent2 = cur.accent2; state.bg = cur.bg;
@@ -363,7 +502,11 @@
     reset.type = "button";
     reset.onclick = function () {
       state = { type: "preset", id: "midnight" };
-      save(); apply(); markActive();
+      save();
+      setSeasonEnabled(false);
+      seasonCb.checked = false;
+      apply();
+      markActive();
       buildColorInputs();
     };
     custom.appendChild(reset);
@@ -391,10 +534,15 @@
     panel.appendChild(wall);
 
     function markActive() {
+      var seasonal = !!seasonTheme();
       var kids = grid.querySelectorAll(".wt-sw");
       for (var i = 0; i < kids.length; i++) {
-        kids[i].classList.toggle("active", state.type === "preset" && kids[i].dataset.id === state.id);
+        kids[i].classList.toggle(
+          "active",
+          !seasonal && state.type === "preset" && kids[i].dataset.id === state.id
+        );
       }
+      renderSeason();
     }
     // Re-seed the color inputs when the theme changes via reset/other means.
     function buildColorInputs() {
@@ -423,6 +571,7 @@
     document.body.appendChild(fab);
     document.body.appendChild(panel);
     renderWallCredit();
+    markSeason(!!seasonTheme());
   }
 
   if (document.readyState === "loading") {
@@ -434,7 +583,10 @@
   // Expose a tiny API for debugging / tests.
   window.WallTheme = {
     themes: THEMES,
+    season: season,
     get: function () { return state; },
-    set: function (s) { state = s; save(); apply(); }
+    set: function (s) { state = s; save(); apply(); },
+    seasonEnabled: seasonEnabled,
+    setSeasonEnabled: setSeasonEnabled
   };
 })();
