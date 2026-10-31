@@ -38,6 +38,25 @@
     "deepavali":    { dark: true, bg: "#1a0f04", bg2: "#2b1a08", accent: "#f59e0b", accent2: "#f43f5e" },
     "christmas":    { dark: true, bg: "#07160f", bg2: "#0b2418", accent: "#ef4444", accent2: "#34d399" }
   };
+  // What to say, and what to let drift down the screen, per celebration.
+  var SEASON_COPY = {
+    "halloween":    { line: "Something spooky is on the wall", fx: ["🎃", "🦇", "👻", "🍬", "🕸️"] },
+    "new-year":     { line: "A fresh year on the wall", fx: ["🎉", "✨", "🥂"] },
+    "cny":          { line: "Gong xi fa cai", fx: ["🧧", "🏮", "🍊", "✨"] },
+    "thaipusam":    { line: "Happy Thaipusam", fx: ["🪔", "✨", "🌸"] },
+    "raya":         { line: "Selamat Hari Raya Aidilfitri", fx: ["🌙", "⭐", "🕌"] },
+    "haji":         { line: "Selamat Hari Raya Haji", fx: ["🌙", "⭐", "🕋"] },
+    "wesak":        { line: "Happy Wesak", fx: ["🪷", "🕯️", "✨"] },
+    "kaamatan":     { line: "Selamat Kaamatan", fx: ["🌾", "🍚", "✨"] },
+    "gawai":        { line: "Gayu guru, gerai nyamai", fx: ["🏵️", "🌿", "✨"] },
+    "muharram":     { line: "Selamat Tahun Baru Hijrah", fx: ["🌙", "⭐"] },
+    "merdeka":      { line: "Merdeka! Merdeka! Merdeka!", fx: ["🇲🇾", "✨", "🎆"] },
+    "maulidur":     { line: "Selamat Maulidur Rasul", fx: ["🕌", "🌙", "✨"] },
+    "malaysia-day": { line: "Selamat Hari Malaysia", fx: ["🇲🇾", "✨", "🎆"] },
+    "mid-autumn":   { line: "Happy Mid-Autumn Festival", fx: ["🥮", "🏮", "🌕"] },
+    "deepavali":    { line: "Selamat Deepavali", fx: ["🪔", "✨", "🎆"] },
+    "christmas":    { line: "Merry Christmas", fx: ["🎄", "❄️", "🎁"] }
+  };
   var SEASON_KEY = "wall_season_off_v1";
   var season = (typeof window !== "undefined" && window.__SEASON) || null;
 
@@ -128,14 +147,34 @@
   ];
 
   // --- variables -----------------------------------------------------------
-  function baseVars(dark) {
+  function relLum(hex) { return luminance(hex) ; }
+  function contrast(a, b) {
+    var la = relLum(a), lb = relLum(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+  function mix(a, b, p) {
+    var ca = hexToRgb(a), cb = hexToRgb(b);
+    return toHex(ca.map(function (v, i) { return v + (cb[i] - v) * p; }));
+  }
+  // Push a colour towards the text colour until it clears the ratio on this bg.
+  function readableOn(bg, color, want, towards) {
+    var out = color;
+    for (var i = 1; i <= 20; i++) {
+      if (contrast(out, bg) >= want) return out;
+      out = mix(color, towards, i / 20);
+    }
+    return towards;
+  }
+
+  function baseVars(dark, bg, accent, accent2) {
     if (dark) {
       return {
         "--card": "rgba(255,255,255,0.045)", "--stroke": "rgba(255,255,255,0.10)",
         "--text": "#e8ecf8", "--muted": "#8a93ad",
         "--good": "#34e39b", "--warn": "#feca57", "--bad": "#ff6b6b",
         "--input-bg": "rgba(0,0,0,.25)", "--btn-bg": "rgba(255,255,255,.06)",
-        "--btn-hover": "rgba(255,255,255,.12)", "--toast-bg": "#111a30", "--hero-a": "#ffffff"
+        "--btn-hover": "rgba(255,255,255,.12)", "--toast-bg": "#111a30", "--hero-a": "#ffffff",
+        "--scrim": "rgba(6,8,16,.62)", "--chip-text": "#ffffff"
       };
     }
     return {
@@ -143,21 +182,39 @@
       "--text": "#1b2233", "--muted": "#5a6478",
       "--good": "#0f9d63", "--warn": "#b7791f", "--bad": "#d64545",
       "--input-bg": "rgba(255,255,255,0.82)", "--btn-bg": "rgba(0,0,0,0.05)",
-      "--btn-hover": "rgba(0,0,0,0.10)", "--toast-bg": "#ffffff", "--hero-a": "#0f172a"
+      "--btn-hover": "rgba(0,0,0,0.10)", "--toast-bg": "#ffffff", "--hero-a": "#0f172a",
+      "--scrim": "rgba(6,8,16,.62)", "--chip-text": "#ffffff"
     };
   }
 
   function buildVars(t) {
-    var v = baseVars(!!t.dark);
+    var v = baseVars(!!t.dark, t.bg, t.accent, t.accent2);
     v["--bg"] = t.bg;
     v["--bg2"] = t.bg2;
+    v["--bg2-rgb"] = rgbTriple(t.bg2);
     v["--accent"] = t.accent;
     v["--accent2"] = t.accent2;
+    v["--accent-rgb"] = rgbTriple(t.accent);
     v["--glow-a"] = rgbTriple(t.accent);
     v["--glow-b"] = rgbTriple(t.accent2);
     v["--glow-c"] = rgbTriple(t.accent2);
     v["--hero-b"] = t.accent2;
     v["--hero-c"] = t.accent;
+
+    // Text colour chosen by measurement, not by a dark/light flag: a custom or
+    // seasonal background can sit anywhere on the scale, and white-on-cream was
+    // exactly the "I can't see the text" case.
+    var lightText = "#f4f7ff", darkText = "#141a28";
+    var useLight = contrast(lightText, t.bg) >= contrast(darkText, t.bg);
+    var text = useLight ? lightText : darkText;
+    var toward = useLight ? "#ffffff" : "#000000";
+    v["--text"] = text;
+    v["--text-strong"] = useLight ? "#ffffff" : "#0a0f18";
+    v["--muted"] = readableOn(t.bg, mix(text, t.bg, 0.42), 4.6, toward);
+    // Links and labels tinted with the accent, but never below 4.5:1.
+    v["--accent-ink"] = readableOn(t.bg, t.accent2, 4.5, toward);
+    v["--accent-ink-2"] = readableOn(t.bg, t.accent, 4.5, toward);
+    v["--hero-a"] = useLight ? "#ffffff" : "#0f172a";
     return v;
   }
 
@@ -221,20 +278,77 @@
   function markSeason(on) {
     if (!season || !season.active) {
       root.removeAttribute("data-season");
+      root.removeAttribute("data-season-name");
       setLogo(LOGO_DEFAULT);
+      renderKicker(false);
+      renderFx(false);
       return;
     }
     if (on) {
       root.setAttribute("data-season", season.active.id);
-      setLogo(season.active.emoji);
       root.setAttribute("data-season-name", season.active.name);
+      setLogo(season.active.emoji);
     } else {
       root.removeAttribute("data-season");
       root.removeAttribute("data-season-name");
       setLogo(LOGO_DEFAULT);
     }
+    renderKicker(on);
+    renderFx(on);
   }
   var LOGO_DEFAULT = "🧱";
+
+  // The line above the hero title: seasonal when one is on, plain otherwise.
+  function renderKicker(seasonal) {
+    var kicker = document.getElementById("seasonKicker");
+    if (!kicker) return;
+    if (seasonal && season && season.active) {
+      var copy = SEASON_COPY[season.active.id] || {};
+      kicker.textContent = copy.line
+        ? copy.line + " · " + season.active.name
+        : season.active.name + " on the wall";
+    } else if (season && season.next) {
+      kicker.textContent = "A private wall · next up " + season.next.emoji + " " + season.next.name;
+    } else {
+      kicker.textContent = "A private wall · links & notes";
+    }
+  }
+
+  // A slow drift of emoji above the feed. Skipped entirely when the reader asks
+  // for reduced motion, and kept light on phones.
+  function renderFx(seasonal) {
+    var layer = document.getElementById("seasonfx");
+    if (!seasonal || !season || !season.active) {
+      if (layer) layer.remove();
+      return;
+    }
+    if (!document.body) return; // called from apply() in <head>; buildUI re-runs it
+    var reduce = false;
+    try { reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+    var narrow = window.innerWidth < 560;
+    var set = (SEASON_COPY[season.active.id] || {}).fx || [season.active.emoji];
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = "seasonfx";
+      layer.setAttribute("aria-hidden", "true");
+      document.body.appendChild(layer);
+    }
+    layer.textContent = "";
+    if (reduce) { layer.remove(); return; }
+    var count = narrow ? 4 : 7;
+    for (var i = 0; i < count; i++) {
+      var sp = document.createElement("span");
+      sp.textContent = set[i % set.length];
+      sp.style.setProperty("--x", Math.round((i + 0.5) * (100 / count) + (Math.random() * 8 - 4)) + "vw");
+      sp.style.setProperty("--sz", (narrow ? 14 : 18) + Math.round(Math.random() * 12) + "px");
+      sp.style.setProperty("--dur", (16 + Math.random() * 14).toFixed(1) + "s");
+      sp.style.setProperty("--d", (-Math.random() * 18).toFixed(1) + "s");
+      sp.style.setProperty("--o", (0.3 + Math.random() * 0.3).toFixed(2));
+      sp.style.setProperty("--dx", Math.round(Math.random() * 120 - 60) + "px");
+      sp.style.setProperty("--rot", Math.round(Math.random() * 320 - 160) + "deg");
+      layer.appendChild(sp);
+    }
+  }
   function setLogo(text) {
     var logo = document.querySelector(".logo");
     if (!logo) return;

@@ -211,6 +211,31 @@ Everything else (the feed, search, sort and the theme picker) sits behind the
 password like the rest of the site. It's built for a two-person private wall —
 one shared password, per-browser identity and votes — rather than public sign-ups.
 
+## Look & feel
+
+A short design pass so the wall reads like a designed thing rather than a grid of
+boxes:
+
+- **Type.** Headlines and card titles use a display serif (`ui-serif` stack, no
+  webfont — the CSP only allows `self` and `data:` fonts), body text a system
+  sans. Tight tracking on big type, `text-wrap: balance` on titles,
+  `text-wrap: pretty` on summaries, tabular numerals for times and counters.
+- **Motion.** A slow gradient sheen across the hero, cards that stagger in (40 ms
+  apart, capped so a long page doesn't animate for seconds), a lift + photo zoom
+  on hover, a pop on the vote you just cast. Every bit of it is disabled under
+  `prefers-reduced-motion: reduce`, which is checked at runtime by the seasonal
+  layer too, not just in CSS.
+- **Seasons.** The hero kicker carries the greeting ("Something spooky is on the
+  wall · Halloween", "Selamat Deepavali"), a handful of themed emoji drift down
+  the screen (7 on desktop, 4 on phones, none under reduced motion), the logo
+  takes the season's emoji, and the month headers follow the palette.
+- **Contrast is measured, not assumed.** `buildVars()` picks `--text` by comparing
+  the light and dark candidates against the actual background, pushes `--muted`
+  and `--accent-ink` towards the text colour until they clear 4.5:1, and the
+  photo overlays (badges, arrows, slide counter) keep a dark scrim in every theme
+  so they stay readable on any picture. That replaced fixed white/grey constants
+  that made light and mid-tone backgrounds unreadable.
+
 ## Themes
 
 The look is customizable per **browser/device** — the app has a single shared

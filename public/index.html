@@ -314,6 +314,75 @@
     #lightbox .lb-x { width: 36px; height: 36px; }
   }
 
+
+  /* ===== Design pass ===================================================== */
+  :root {
+    --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Times New Roman", serif;
+    --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --ease: cubic-bezier(.22,.61,.36,1);
+  }
+  body { font-family: var(--font-body); text-rendering: optimizeLegibility; }
+  .card h3, .hero h1, .panel h2, .sheet-head h2, h1, h2 { font-family: var(--font-display); }
+  .card h3 { font-size: 19px; line-height: 1.22; letter-spacing: -.015em; text-wrap: balance; }
+  .hero h1 { letter-spacing: -.032em; text-wrap: balance; }
+  .summary { text-wrap: pretty; }
+  .meta .when, .c-count, .monthsep, .hint, #count, .c-dot { font-variant-numeric: tabular-nums; }
+  .section-label { letter-spacing: .16em; color: var(--accent-ink, var(--muted)); }
+
+  /* Hero: kicker + slow gradient sheen */
+  .hero { position: relative; }
+  .hero .kicker { display: inline-flex; align-items: center; gap: 9px; margin: 0 0 10px;
+    font-size: 11.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink, var(--muted)); }
+  .hero .kicker::before { content: ""; width: 22px; height: 1px; background: currentColor; opacity: .55; }
+  .hero h1 { background-size: 220% 100%; animation: sheen 16s var(--ease) infinite; }
+  @keyframes sheen { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+
+  /* Cards: staggered entrance, lift on hover, photo zoom */
+  .card { animation: cardIn .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 40ms);
+    transition: transform .35s var(--ease), box-shadow .35s var(--ease), border-color .35s var(--ease); }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.995); } }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 20px 48px rgba(0, 0, 0, .3);
+    border-color: rgba(var(--accent-rgb, 108, 140, 255), .45); }
+  .carousel .slide img { transition: transform 7s linear; }
+  .card:hover .carousel .slide img { transform: scale(1.03); }
+
+  /* Photo overlays keep a dark scrim in every theme: readable on any picture. */
+  .badge, .c-count, .c-arrow { background: var(--scrim, rgba(6, 8, 16, .62)); color: var(--chip-text, #fff); }
+  /* The month header sits on the page, so it must follow the theme. */
+  .monthsep { background: rgba(var(--bg2-rgb, 14, 20, 40), .92); color: var(--text); border-color: var(--stroke); }
+
+  /* Links and chips that used to inherit a pale accent on light backgrounds. */
+  .srcchip, .srclink, ul.refs a, .wt-credit a { color: var(--accent-ink, var(--accent2)); }
+  .srcchip:hover { border-color: var(--accent-ink, var(--accent2)); }
+
+  /* Interaction feedback */
+  :focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; border-radius: 8px; }
+  .btn:active, .fab:active, .tagchip:active, .vbtn:active, .chev:active { transform: scale(.97); }
+  .vbtn.pop { animation: votePop .38s var(--ease); }
+  @keyframes votePop { 0% { transform: scale(1); } 45% { transform: scale(1.16); } 100% { transform: scale(1); } }
+  .loadmore:disabled { opacity: .65; cursor: default; }
+
+  /* Seasonal flourishes: a slow drift of emoji, themed per celebration. */
+  #seasonfx { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+  #seasonfx span { position: absolute; top: -10vh; left: var(--x, 50vw); font-size: var(--sz, 20px);
+    opacity: var(--o, .45); animation: drift var(--dur, 20s) linear infinite; animation-delay: var(--d, 0s);
+    will-change: transform; }
+  @keyframes drift {
+    to { transform: translate3d(var(--dx, 30px), 118vh, 0) rotate(var(--rot, 140deg)); }
+  }
+  html[data-season] .logo { box-shadow: 0 0 26px rgba(var(--accent-rgb, 108, 140, 255), .55); }
+  html[data-season] .hero h1 { filter: drop-shadow(0 0 34px rgba(var(--accent-rgb, 108, 140, 255), .22)); }
+
+  /* Respect the reader's motion preference: no sheen, no drift, no stagger. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important; scroll-behavior: auto !important;
+    }
+    #seasonfx { display: none !important; }
+    .hero h1 { animation: none !important; background-position: 50% 50% !important; }
+  }
 </style>
 </head>
 <body>
@@ -328,6 +397,7 @@
   </header>
 
   <section class="hero">
+    <p class="kicker" id="seasonKicker">A private wall · links &amp; notes</p>
     <h1>The Wall</h1>
     <p>Our private family wall. Post a link or a note and AI turns it into a card.</p>
   </section>
@@ -925,6 +995,10 @@ function makeCard(p) {
       up.textContent = "👍 " + d.votes_up; down.textContent = "👎 " + d.votes_down;
       up.classList.toggle("on", d.my_vote === 1);
       down.classList.toggle("on", d.my_vote === -1);
+      const hit = d.my_vote === 1 ? up : down;
+      hit.classList.remove("pop");
+      void hit.offsetWidth; // restart the animation
+      hit.classList.add("pop");
       if (feedState.sort !== "new" && feedState.sort !== "old") loadFeed({ reset: true });
     } catch (e) { toast("Failed: " + e.message); }
     finally { up.disabled = down.disabled = false; }
@@ -1132,6 +1206,7 @@ function renderFeed() {
   const grouped = feedState.sort === "new" || feedState.sort === "old";
   let grid = null;
   let current = null;
+  let order = 0;
   for (const p of feedState.posts) {
     const key = monthKey(p.created_at);
     if (grouped && key !== current) {
@@ -1146,7 +1221,11 @@ function renderFeed() {
       grid = el("div", "monthgrid");
       feed.append(grid);
     }
-    grid.append(makeCard(p));
+    const card = makeCard(p);
+    // Stagger the entrance, but only for the first screenful: a long page should
+    // not animate for two seconds.
+    card.style.setProperty("--i", String(Math.min(order++, 8)));
+    grid.append(card);
   }
 
   // Paging: a button that always works, plus auto-load when it scrolls into view.
