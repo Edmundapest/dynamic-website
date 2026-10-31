@@ -14,8 +14,7 @@
 // /api/posts/:id/img/:idx. When `sharp` is available everything is stored that
 // way (rows stay ~60-120 KB per image); without it only the expiring hosts are,
 // so a missing native module can never break a card.
-const CACHE_MS = 12_000;
-const MAX_BYTES = 4 * 1024 * 1024; // refuse absurd downloads
+const CACHE_MS = 12_000;const MAX_BYTES = 4 * 1024 * 1024; // refuse absurd downloads
 const STORE_MAX_BYTES = 700 * 1024; // keep each stored image small
 const MIN_BYTES = 6 * 1024; // anything smaller is a pixel/icon, not a photo
 const MAX_WIDTH = 1024;
@@ -23,6 +22,14 @@ const QUALITY = 68;
 const TARGET = 5; // "at least five images"
 
 const UA = "wall-bot/1.0 (+https://dynamic-website-urt2.onrender.com)";
+const crypto = require("node:crypto");
+
+// Stable identity for a stored slide. Two URLs that serve the same picture end
+// up byte-identical after re-encoding, which is the only reliable way to catch
+// duplicates across CDNs, proxies and size variants.
+function hashOf(dataUri) {
+  return crypto.createHash("sha1").update(String(dataUri)).digest("hex");
+}
 
 // Image hosts whose URLs expire (signed) or that refuse to be hotlinked.
 const EXPIRING =
@@ -176,13 +183,36 @@ async function normalizeDataUri(uri) {
   return toStoredDataUri({ buf: Buffer.from(m[2], "base64"), type: m[1].toLowerCase() });
 }
 
+// Query parameters that only pick a rendition or a cache-buster; dropping them
+// lets the same asset found twice collapse into one candidate.
+const VOLATILE_PARAM = /^(w|h|width|height|q|quality|fit|crop|auto|fm|format|dpr|rs|resize|size|v|ver|version|ixlib|tr|sig|token|expires|impolicy|oe|oh|stp|ccb|efg|_nc_.*)$/i;
+
 function dedupeKey(url) {
-  let k = String(url).split("?")[0].replace(/\/+$/, "").toLowerCase();
-  // Wix (and friends) serve one picture through many transform URLs: keep the
-  // media id, drop the /v1/... rendition tail so we don't put it in twice.
-  const v = k.indexOf("/v1/");
-  if (v > 0) k = k.slice(0, v);
-  return k;
+  let raw = String(url).trim();
+  try {
+    const u = new URL(raw);
+    // Same picture, different CDN node / mirror host.
+    let host = u.hostname.toLowerCase().replace(/^www\./, "");
+    host = host.replace(/^scontent[\w.-]*\.(cdninstagram\.com|fbcdn\.net)$/, "$1");
+    host = host.replace(/^[\w-]+\.xhscdn\.com$/, "xhscdn.com");
+    host = host.replace(/^thumb\.wikimedia\.org$/, "wikimedia.org");
+    host = host.replace(/^upload\.wikimedia\.org$/, "wikimedia.org");
+    const keep = [...u.searchParams.entries()]
+      .filter(([k]) => !VOLATILE_PARAM.test(k))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("&");
+    // Wix (and friends) serve one picture through many transform URLs: keep the
+    // media id, drop the /v1/... rendition tail.
+    let path = u.pathname.toLowerCase();
+    const v = path.indexOf("/v1/");
+    if (v > 0) path = path.slice(0, v);
+    // Wikimedia thumbnails are the same file at different widths.
+    path = path.replace(/\/\d{1,4}px-/, "/");
+    return `${host}${path}${keep ? "?" + keep : ""}`;
+  } catch {
+    return raw.toLowerCase();
+  }
 }
 
 function dedupe(urls) {
@@ -208,9 +238,10 @@ function collect(...lists) {
 //   { items: [{ kind: "data", data } | { kind: "url", url }], source }
 // `need` caps how many we resolve; the caller turns `data` items into
 // /api/posts/:id/img/:i URLs.
-async function buildCarousel({ candidates, need = TARGET, generate } = {}) {
+async function buildCarousel({ candidates, need = TARGET, generate, avoidHashes } = {}) {
   const urls = collect(candidates).slice(0, Math.max(need * 6, 12));
   const items = [];
+  const seen = new Set(avoidHashes || []); // slides the card already shows
   let attempted = 0;
   let generated = 0;
 
@@ -233,7 +264,11 @@ async function buildCarousel({ candidates, need = TARGET, generate } = {}) {
         if (bytes && bytes.buf.length < MIN_BYTES) break candidates; // pixel/icon
         if (bytes) stored = await toStoredDataUri(bytes);
       }
-      if (!stored) {
+      if (stored) {
+        const h = hashOf(stored);
+        if (seen.has(h)) break candidates; // same picture, already in the deck
+        seen.add(h);
+      } else {
         // A raw scontent.cdninstagram.com / xhscdn.com link dies within days (or
         // minutes), so it must never end up in a card.
         if (expiring) continue;
@@ -256,6 +291,9 @@ async function buildCarousel({ candidates, need = TARGET, generate } = {}) {
       }
       const data = made ? await normalizeDataUri(made) : null;
       if (!data) break; // provider unavailable/rate-limited: keep what we have
+      const h = hashOf(data);
+      if (seen.has(h)) continue;
+      seen.add(h);
       items.push({ kind: "data", data });
       generated++;
     }
@@ -288,14 +326,29 @@ function displayUrls(postId, items, offset = 0) {
   return { images, stored };
 }
 
+// Download one URL and return it in storable form (or null when it is dead,
+// tiny, or too heavy). Used by the backfill to normalise existing slides.
+async function cacheUrl(url) {
+  for (const candidate of variants(url)) {
+    const bytes = await fetchBytes(candidate);
+    if (bytes && bytes.big) return null;
+    if (!bytes) continue;
+    if (bytes.buf.length < MIN_BYTES) return null;
+    return toStoredDataUri(bytes);
+  }
+  return null;
+}
+
 module.exports = {
   buildCarousel,
-  preferred: (url) => variants(url)[0],
   displayUrls,
   collect,
+  cacheUrl,
+  hashOf,
   dedupeKey,
   usable,
   isImageUrl,
   isExpiring,
+  preferred: (url) => variants(url)[0],
   TARGET,
 };

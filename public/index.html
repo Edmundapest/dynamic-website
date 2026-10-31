@@ -106,10 +106,12 @@
   .c-arrow.prev { left: 8px; }
   .c-arrow.next { right: 8px; }
   @media (hover: none) { .c-arrow { width: 38px; height: 38px; font-size: 20px; } }
-  .c-dots { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; gap: 5px; justify-content: center; z-index: 3; }
-  .c-dot { width: 7px; height: 7px; padding: 0; border-radius: 50%; cursor: pointer;
-    border: 1px solid rgba(255,255,255,.75); background: rgba(255,255,255,.28); }
-  .c-dot.on { background: #fff; }
+  .c-dots { position: absolute; left: 0; right: 0; bottom: 3px; display: flex; gap: 2px; justify-content: center; z-index: 3; }
+  /* 22px hit area with a small visual dot, so the dots are tappable. */
+  .c-dot { width: 22px; height: 22px; padding: 0; border: 0; background: none; cursor: pointer; position: relative; }
+  .c-dot::after { content: ""; position: absolute; inset: 0; margin: auto; width: 7px; height: 7px;
+    border-radius: 50%; border: 1px solid rgba(255,255,255,.75); background: rgba(255,255,255,.28); }
+  .c-dot.on::after { background: #fff; }
   .c-count { position: absolute; right: 10px; bottom: 8px; z-index: 3; font-size: 11px; font-weight: 700;
     color: #fff; background: rgba(0,0,0,.55); border: 1px solid var(--stroke); padding: 2px 7px; border-radius: 999px; }
   /* Full-screen lightbox */
@@ -222,6 +224,55 @@
     box-shadow: 0 20px 50px rgba(0,0,0,.5); opacity: 0; transition: .25s; pointer-events: none; font-weight: 600; font-size: 14px; z-index: 80; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   footer { color: var(--muted); font-size: 13px; margin-top: 30px; text-align: center; }
+
+  /* Phones: same information, far less chrome. */
+  @media (max-width: 560px) {
+    header.appbar { padding: 8px 12px 10px; margin: -14px -12px 6px; }
+    .brand { font-size: 15px; gap: 8px; }
+    .logo { width: 28px; height: 28px; border-radius: 8px; font-size: 15px; }
+    nav { gap: 8px; font-size: 13px; }
+    .pill { padding: 5px 9px; font-size: 11.5px; gap: 6px; }
+    .hero { margin: 2px 0 10px; }
+    .hero h1 { font-size: 24px; margin: 0; letter-spacing: -.5px; }
+    .hero p { display: none; }
+    .panel { padding: 12px; border-radius: 14px; margin: 10px 0; }
+    .panel h2 { font-size: 15px; }
+    /* Feed toolbar: title row, then a full-width search, then sort + refresh. */
+    #latestPanel > .row:first-of-type { gap: 8px; }
+    #latestPanel > .row:first-of-type > .row { width: 100%; gap: 8px; }
+    #search.mini-input { flex: 1 1 100%; min-width: 0; padding: 8px 10px; }
+    #sortSel.mini-select { flex: 1 1 auto; min-width: 0; padding: 8px 10px; }
+    #btnRefresh { flex: 0 0 auto; padding: 6px 10px; }
+    /* Tag bar: one scrollable line instead of several wrapped rows. */
+    .tagbar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+    .tagbar::-webkit-scrollbar { display: none; }
+    .tagchip { flex: 0 0 auto; }
+    .feed { gap: 12px; padding-bottom: 100px; }
+    .cardbody { padding: 12px; gap: 10px; }
+    .card h3 { font-size: 16.5px; }
+    .summary { font-size: 13.5px; line-height: 1.5; }
+    .meta { font-size: 12px; gap: 7px; }
+    .avatar { width: 26px; height: 26px; font-size: 11px; }
+    .carousel { height: 190px; }
+    .badge { font-size: 10px; padding: 3px 7px; }
+    .c-dots { bottom: 2px; gap: 0; }
+    .c-dot { width: 20px; height: 20px; }
+    .c-dot::after { width: 6px; height: 6px; }
+    /* Card tags: one scrollable line instead of wrapping rows. */
+    .tagrow { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+    .tagrow::-webkit-scrollbar { display: none; }
+    .tagrow .tagchip { flex: 0 0 auto; }
+    .actions { gap: 6px; }
+    .actions .btn.sm { padding: 4px 9px; font-size: 12px; }
+    .vbtn { padding: 4px 10px; font-size: 12.5px; }
+    .c-count { font-size: 10px; padding: 2px 6px; bottom: 6px; }
+    .notebox { flex-wrap: wrap; }
+    .fabdock { right: 12px; bottom: 62px; gap: 10px; }
+    .fab { width: 42px; height: 42px; border-radius: 12px; font-size: 18px; }
+    #lightbox .lb-nav { width: 40px; height: 40px; font-size: 20px; }
+    #lightbox .lb-x { width: 36px; height: 36px; }
+  }
+
 </style>
 </head>
 <body>
@@ -502,8 +553,7 @@ function closeLightbox() {
 
 // Carousel: one photo per slide, arrows + dots + swipe, click to enlarge.
 function makeCarousel(urls) {
-  const wrap = el("div", "carousel");
-  const track = el("div", "track");
+  const wrap = el("div", "carousel");  const track = el("div", "track");
   const dots = el("div", "c-dots");
   const count = el("div", "c-count");
   const prev = el("button", "c-arrow prev", "‹");
@@ -530,10 +580,11 @@ function makeCarousel(urls) {
     index = Math.max(0, Math.min(index, slides.length - 1));
     track.style.transform = "translateX(" + -index * 100 + "%)";
     count.textContent = index + 1 + " / " + slides.length;
-    const many = slides.length > 1;
+    // On phones the arrows just cover the photo; swiping and the dots remain.
+    const many = slides.length > 1 && !isCompact();
     prev.style.display = next.style.display = many ? "grid" : "none";
     dots.textContent = "";
-    if (!many) return;
+    if (slides.length < 2) return;
     slides.forEach((_, i) => {
       const d = el("button", "c-dot" + (i === index ? " on" : ""));
       d.type = "button";
@@ -729,7 +780,12 @@ function makeCard(p) {
     chev.setAttribute("aria-label", chev.title);
     if (v) collapsed.add(p.id); else collapsed.delete(p.id);
   };
-  chev.onclick = () => setCollapsed(!collapsed.has(p.id));
+  chev.onclick = () => {
+    const collapsing = !collapsed.has(p.id);
+    if (collapsing) expandedByUser.delete(p.id);
+    else expandedByUser.add(p.id);
+    setCollapsed(collapsing);
+  };
   setCollapsed(collapsed.has(p.id));
 
   // Footer: thumbs (one vote per person) + edit controls when logged in.
@@ -785,6 +841,16 @@ let sortMode = "new";
 let activeTag = null;
 let query = "";
 const collapsed = new Set();
+const expandedByUser = new Set(); // phones start collapsed; respect what you open
+
+// Phone-width layout: triggers the dense CSS and the collapsed-by-default feed.
+function isCompact() {
+  try {
+    return window.matchMedia("(max-width: 560px)").matches;
+  } catch {
+    return false;
+  }
+}
 
 function renderTagBar() {
   const counts = new Map();
@@ -839,6 +905,11 @@ function applyView() {
 
 function render(posts) {
   feedCache = posts || [];
+  // A phone screen fits about one open card; start collapsed so the feed stays
+  // scannable, but never re-collapse something the reader opened.
+  if (isCompact()) {
+    for (const p of feedCache) if (!expandedByUser.has(p.id)) collapsed.add(p.id);
+  }
   renderTagBar();
   applyView();
 }

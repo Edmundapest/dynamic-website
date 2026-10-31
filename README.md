@@ -87,13 +87,20 @@ are downloaded during enrichment, re-encoded to a ~1024px JPEG with `sharp`
 hosts (Wikipedia, most blogs) stay as plain URLs. Storing costs roughly
 40-90 KB per slide.
 
+A slide never repeats. The same photo reaches the deck under different URLs,
+CDN nodes and size variants, so dedupe runs twice: `dedupeKey()` normalises a
+candidate URL (mirror hosts, `?w=…`/`?v=…` params, `/v1/fill/…` renditions,
+Wikimedia widths), and stored slides are compared by SHA-1 of their bytes —
+which is the only way to catch two different URLs serving the same picture.
+
 `images_data` is a JSON array of data URIs; `card.images` holds the display URLs,
 so the feed payload stays small. Cards created before carousels existed can be
 topped up in place — existing pictures are kept, only the shortfall is added:
 
 ```bash
 npm run backfill:images -- --dry   # report what would change
-npm run backfill:images            # top every ready post up to five slides
+npm run backfill:images            # cards that are short or have duplicates
+npm run backfill:images -- --force # rebuild every card's deck
 ```
 
 ### Feed: votes, tags, sort & collapse
@@ -124,6 +131,12 @@ returns; nothing extra is stored server-side for them.
 
 The wall is laid out like a small social feed: a sticky top bar, an author row
 (avatar + name + relative time) on each card, hashtag chips, and a feed of cards.
+
+On phones (≤560px) the layout tightens up instead of just shrinking: the hero
+blurb and the carousel arrows are hidden (swiping and the dots remain), the tag
+bar and a card's tags become single scrolling rows, the feed toolbar stacks with
+a full-width search box, and each card starts **collapsed** so ~2.4 cards fit on
+screen — tap the chevron to open one (the expanded state survives the poll).
 
 Two **floating buttons** (bottom-right, stacked above the theme 🎨 button) drive
 the main actions:

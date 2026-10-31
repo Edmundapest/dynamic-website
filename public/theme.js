@@ -273,6 +273,8 @@
       "overflow:auto;background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px;",
       "backdrop-filter:blur(12px);box-shadow:0 24px 60px rgba(0,0,0,.45);display:none}",
       "#wt-panel.open{display:block}",
+      "@media (max-width:560px){#wt-fab{right:12px;bottom:12px;width:42px;height:42px;border-radius:12px;font-size:19px}",
+      "#wt-panel{right:12px;bottom:62px;width:calc(100vw - 24px);max-height:64vh}}",
       "#wt-panel h3{margin:0 0 10px;font-size:14px;letter-spacing:.2px}",
       "#wt-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}",
       ".wt-sw{display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px;border-radius:10px;",
